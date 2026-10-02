@@ -1,0 +1,239 @@
+:root {
+  --ink: #16181d;
+  --muted: #5f6672;
+  --line: #dcdfe6;
+  --accent: #2f5bd7;
+  --danger: #b3261e;
+  --surface: #ffffff;
+  --page: #f6f7f9;
+  --radius: 10px;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 16px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font-feature-settings: "kern";
+}
+
+.page {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 40px 20px 80px;
+}
+
+/* -------------------------------------------------------------- masthead */
+
+.masthead { margin-bottom: 28px; }
+
+h1 {
+  margin: 0;
+  font-size: 30px;
+  letter-spacing: -0.02em;
+}
+
+.tagline {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+/* ----------------------------------------------------------------- panels */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px;
+  margin-bottom: 20px;
+}
+
+/* -------------------------------------------------------------- recording */
+
+.readout {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.pitch-readout {
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  min-width: 108px;
+}
+
+.pitch-label {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.level {
+  height: 10px;
+  background: #eceef2;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.level-fill {
+  height: 100%;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 60ms linear;
+}
+
+.timer {
+  margin-top: 8px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.button {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 10px 16px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.button:hover:not(:disabled) { background: #f2f4f8; }
+.button:disabled { opacity: 0.5; cursor: default; }
+
+.button-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.button-primary:hover:not(:disabled) { background: #2749b4; }
+
+.button-quiet {
+  background: #f4f5f8;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.status {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.status[data-tone="error"] { color: var(--danger); }
+
+.progress {
+  margin-top: 14px;
+  height: 6px;
+  background: #eceef2;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 120ms ease;
+}
+
+/* ---------------------------------------------------------------- results */
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26px;
+  margin: 0 0 6px;
+}
+
+.facts div { margin: 0; }
+
+.facts dt {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.facts dd {
+  margin: 2px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.confidence {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.score-host {
+  margin: 18px 0 4px;
+  padding: 12px 8px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.score-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-width: 480px;
+}
+
+.playback {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.exports { margin-top: 18px; }
+
+/* ------------------------------------------------------------------ notes */
+
+.notes {
+  margin-top: 34px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.notes h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  margin: 0 0 8px;
+}
+
+.notes p { margin: 0 0 10px; max-width: 62ch; }

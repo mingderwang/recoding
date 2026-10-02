@@ -1,0 +1,81 @@
+---
+import '../styles/global.css';
+
+const title = 'Recoding — sing, and see the score';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Record yourself singing and get the sheet music back." />
+    <title>{title}</title>
+  </head>
+  <body>
+    <main class="page">
+      <header class="masthead">
+        <h1>Recoding</h1>
+        <p class="tagline">Record a melody. Read it back as sheet music.</p>
+      </header>
+
+      <section class="panel" id="capture-panel">
+        <div class="readout">
+          <div class="pitch-readout" id="pitch-readout" aria-live="off">—</div>
+          <div class="pitch-label" id="pitch-label">listening</div>
+        </div>
+
+        <div class="level" role="meter" aria-label="Input level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="level">
+          <div class="level-fill" id="level-fill"></div>
+        </div>
+
+        <div class="timer" id="timer">0.0s</div>
+
+        <div class="controls">
+          <button class="button button-primary" id="record" type="button">Record</button>
+          <button class="button" id="stop" type="button" hidden>Stop</button>
+          <button class="button button-quiet" id="demo" type="button">Try a demo tone</button>
+        </div>
+
+        <p class="status" id="status" role="status">
+          Everything runs in this tab. Nothing is uploaded.
+        </p>
+        <div class="progress" id="progress" hidden><div class="progress-fill" id="progress-fill"></div></div>
+      </section>
+
+      <section class="panel results" id="results" hidden>
+        <div class="summary" id="summary"></div>
+        <div class="score-host" id="score-host"></div>
+
+        <div class="playback">
+          <button class="button" id="play" type="button">Play recording</button>
+          <span class="hint" id="playhead-label"></span>
+        </div>
+
+        <div class="controls exports">
+          <button class="button button-quiet" id="download-midi" type="button">Download MIDI</button>
+          <button class="button button-quiet" id="download-svg" type="button">Download SVG</button>
+          <button class="button button-quiet" id="download-png" type="button">Download PNG</button>
+          <button class="button button-quiet" id="restart" type="button">Record again</button>
+        </div>
+      </section>
+
+      <footer class="notes">
+        <h2>What this does</h2>
+        <p>
+          It looks for one pitch at a time, so it is built for a solo voice or a
+          single melodic instrument. Chords will not come out right, and a
+          recording with two people singing will be a mess.
+        </p>
+        <p>
+          Pitches are detected with the McLeod method, snapped to the key it
+          infers, and laid on the rhythmic grid that best fits your onsets. The
+          tempo it prints is inferred, not measured, so check it against how you
+          were actually singing.
+        </p>
+      </footer>
+    </main>
+
+    <script type="module" src="../scripts/app.ts"></script>
+  </body>
+</html>

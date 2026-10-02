@@ -1,0 +1,9 @@
+{
+  "extends": "astro/tsconfigs/strict",
+  "include": [".astro/types.d.ts", "**/*.ts", "**/*.astro"],
+  "exclude": ["dist", "node_modules", "src/tests"],
+  "compilerOptions": {
+    "types": ["astro/client"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"]
+  }
+}
