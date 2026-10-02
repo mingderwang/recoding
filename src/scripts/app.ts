@@ -61,6 +61,9 @@ function setState(next: typeof state): void {
   ui.record.hidden = next !== 'idle';
   ui.demo.disabled = next === 'recording' || next === 'analysing';
   ui.stop.hidden = next !== 'recording';
+  // "Record again" lives beside the demo button now, so it only makes sense
+  // once there is something to record again over.
+  ui.restart.hidden = next !== 'done';
   ui.results.hidden = next !== 'done';
   ui.progress.hidden = next !== 'analysing';
   ui.status.hidden = next === 'done';

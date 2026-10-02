@@ -45,8 +45,11 @@ self.onmessage = (event: MessageEvent<AnalyzeRequest>) => {
       time: frame.time,
       hz: frame.hz,
       voiced: frame.hz > 0 ? 1 : 0,
+      // Carried through so the octave corrector can tell a low-confidence
+      // window-straddling artefact from a real note.
+      clarity: frame.clarity,
     }));
-    const smoothed = smoothTrack(track, { medianRadius: 2, octaveTolerance: 0.75 });
+    const smoothed = smoothTrack(track);
 
     const notes = segmentNotes(smoothed, {
       ...DEFAULT_SEGMENT_OPTIONS,

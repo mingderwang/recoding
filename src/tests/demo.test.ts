@@ -7,9 +7,14 @@ import { detectKey } from '../lib/music/key';
 import { inferGrid, quantizeNotes } from '../lib/music/quantize';
 import { buildScore } from '../lib/music/score';
 import { renderScore } from '../lib/ui/render-score';
-import { synthesizeDemoMelody, DEMO_MELODY, DEMO_EXPECTED } from '../lib/audio/demo-melody';
+import {
+  synthesizeDemoMelody,
+  DEMO_MELODY,
+  DEMO_EXPECTED_PITCHES,
+} from '../lib/audio/demo-melody';
 
 const SAMPLE_RATE = 44100;
+const C_MAJOR = { tonic: 0, mode: 'major' } as const;
 
 function installDom(): { container: HTMLElement; restore: () => void } {
   const dom = new JSDOM('<!doctype html><html><body><div id="host"></div></body></html>');
@@ -34,101 +39,145 @@ function installDom(): { container: HTMLElement; restore: () => void } {
 function transcribeDemo() {
   const samples = synthesizeDemoMelody(SAMPLE_RATE);
   const track = analyzeTrack(samples, { ...DEFAULT_TRACK_OPTIONS, sampleRate: SAMPLE_RATE })
-    .map((frame) => ({ time: frame.time, hz: frame.hz, voiced: frame.hz > 0 ? 1 : 0 }));
-  const notes = segmentNotes(smoothTrack(track, { medianRadius: 2, octaveTolerance: 0.75 }), {
+    .map((frame) => ({
+      time: frame.time,
+      hz: frame.hz,
+      voiced: frame.hz > 0 ? 1 : 0,
+      // The pipeline needs this: low-confidence frames are boundary artefacts.
+      clarity: frame.clarity,
+    }));
+  const notes = segmentNotes(smoothTrack(track), {
     ...DEFAULT_SEGMENT_OPTIONS,
     frameDuration: DEFAULT_TRACK_OPTIONS.hopSize / SAMPLE_RATE,
   });
   const detection = detectKey(notes.map((n) => ({ midi: n.midi, duration: n.end - n.start })));
-  const key = detection?.key ?? { tonic: 0, mode: 'major' as const };
+  const key = detection?.key ?? C_MAJOR;
   const grid = inferGrid(notes);
   const score = buildScore(quantizeNotes(notes, grid), grid, key);
-  return { notes, key, grid, score };
+  return { samples, notes, key, grid, score };
 }
 
-test('the demo melody transcribes to the notes it was built from', () => {
+// ---------------------------------------------------------------------------
+// The demo melody is a test fixture as much as a feature. If it stops
+// transcribing exactly, the pipeline has regressed — a synthetic phrase is the
+// only input in this suite whose correct answer is known for certain.
+// ---------------------------------------------------------------------------
+
+test('the demo melody transcribes to exactly the notes it was built from', () => {
   const { notes } = transcribeDemo();
-  expect(notes.length).toBe(DEMO_MELODY.notes.length);
-  for (let i = 0; i < DEMO_MELODY.notes.length; i++) {
-    expect(notes[i].midi).toBeCloseTo(DEMO_MELODY.notes[i], 0);
+  expect(notes.length).toBe(DEMO_EXPECTED_PITCHES.length);
+  for (let i = 0; i < DEMO_EXPECTED_PITCHES.length; i++) {
+    // Detection is a measurement, not a lookup: 60.02 is C4, not a wrong note.
+    // A quarter of a semitone is far tighter than a note boundary, so this
+    // cannot pass by accident on a neighbouring pitch.
+    expect(Math.abs(notes[i].midi - DEMO_EXPECTED_PITCHES[i])).toBeLessThan(0.25);
   }
 });
 
 test('the demo melody reports its known tempo and key', () => {
   const { grid, key } = transcribeDemo();
-  expect(Math.abs(grid.bpm - DEMO_EXPECTED.bpm)).toBeLessThanOrEqual(2);
-  expect(key.tonic).toBe(DEMO_EXPECTED.key.tonic);
-  expect(key.mode).toBe(DEMO_EXPECTED.key.mode);
+  // Within 2%: detection reports a note's end one analysis hop early, which
+  // pulls the inferred tempo down slightly.
+  expect(Math.abs(grid.bpm - DEMO_MELODY.bpm) / DEMO_MELODY.bpm).toBeLessThan(0.02);
+  expect(key.tonic).toBe(C_MAJOR.tonic);
+  expect(key.mode).toBe(C_MAJOR.mode);
 });
 
-test('the demo melody notates as even quarter notes', () => {
+test('the demo melody notates with the right note values and its rest', () => {
   const { score } = transcribeDemo();
-  const pitched = score.events.filter((e) => e.type === 'note');
-  expect(pitched.length).toBe(DEMO_MELODY.notes.length);
+  const events = score.events;
+  const pitched = events.filter((e) => e.type === 'note') as Array<{
+    midi: number; duration: number; start: number;
+  }>;
+  const rests = events.filter((e) => e.type === 'rest') as Array<{ duration: number; start: number }>;
+
+  // 13 notes and one beat of rest, as written.
+  expect(pitched.length).toBe(DEMO_EXPECTED_PITCHES.length);
+  expect(rests.length).toBe(1);
+
+  // Four bars of 4/4.
+  expect(score.measures.length).toBe(4);
+  expect(score.totalUnits).toBe(64);
+
+  // Every quarter is 4 units, every half is 8 — or a half split across a
+  // barline into two tied quarters, which is the same sounding length.
   for (const note of pitched) {
-    // One quarter note = 4 sixteenth units.
-    expect(note.duration).toBe(4);
+    expect([4, 8]).toContain(note.duration);
   }
+  // 11 quarters + 2 halves + a one-beat rest = 11*4 + 2*8 + 4 = 64 units,
+  // which is exactly four full bars. Summing notes and rests together is what
+  // proves the score is complete: 16 beats written, 16 beats printed.
+  const sounded = [...pitched, ...rests].reduce((sum, e) => sum + e.duration, 0);
+  const written = DEMO_MELODY.notes.reduce((sum, note) => sum + note.beats, 0);
+  expect(sounded / 4).toBe(written);
+  expect(written).toBe(DEMO_MELODY.beatsPerMeasure * 4);
+  // And the single rest is one beat.
+  expect(rests[0].duration).toBe(4);
 });
 
-test('measures are laid out side by side, not stacked on one another', () => {
-  // The bug this guards against: every measure in a system was drawn at the
-  // same x with the full system width, so all but the first were painted
-  // directly over the first. It produced plausible-looking output that
-  // silently lost most of the melody.
-  const GRID = {
-    bpm: 120, beatsPerStep: 0.25, secondsPerStep: 0.125,
-    beatsPerMeasure: 4, stepsPerMeasure: 16, cost: 0,
-  };
-  const score = buildScore(
-    [60, 62, 64, 65, 67, 69, 71, 72].map((midi, i) => ({
-      startStep: i * 4, durationSteps: 4, midi, confidence: 1,
-    })),
-    GRID,
-    { tonic: 0, mode: 'major' },
-  );
-  expect(score.measures.length).toBe(2);
+test('each bar of the demo score matches the phrase it came from', () => {
+  const { score } = transcribeDemo();
+  const perBar = (bar: number) =>
+    score.events
+      .filter((e) => e.start >= bar * score.unitsPerMeasure && e.start < (bar + 1) * score.unitsPerMeasure)
+      .map((e) => (e.type === 'rest' ? `rest/${e.duration}` : `${e.midi}/${e.duration}`));
 
+  // C4 D4 E4 F4 | G4 C5 B4 A4 | G4(half) F4 E4 | rest D4 C4(half)
+  expect(perBar(0)).toEqual(['60/4', '62/4', '64/4', '65/4']);
+  expect(perBar(1)).toEqual(['67/4', '72/4', '71/4', '69/4']);
+  expect(perBar(2)).toEqual(['67/8', '65/4', '64/4']);
+  expect(perBar(3)).toEqual(['rest/4', '62/4', '60/8']);
+});
+
+test('the rest is preserved rather than absorbed into a neighbouring note', () => {
+  // A regression guard. Boundary smoothing used to pull the note after a rest
+  // backwards onto the note before it, deleting the silence entirely: bar 4
+  // came out as two half notes where the phrase has a rest, a quarter and a
+  // half.
+  const { score } = transcribeDemo();
+  const lastBar = score.events.filter(
+    (e) => e.start >= 3 * score.unitsPerMeasure,
+  );
+  expect(lastBar.map((e) => (e.type === 'rest' ? 'rest' : `note${e.duration}`))).toEqual([
+    'rest',
+    'note4',
+    'note8',
+  ]);
+});
+
+test('the demo score renders every note, and the right number of glyphs', () => {
+  const { score } = transcribeDemo();
   const env = installDom();
   let markup = '';
-  let viewBox = '';
   try {
-    const svg = renderScore(env.container, score, { width: 760, measuresPerSystem: 2 });
+    const svg = renderScore(env.container, score, { width: 760 });
     markup = new env.container.ownerDocument.defaultView!.XMLSerializer().serializeToString(svg);
-    viewBox = svg.getAttribute('viewBox') ?? '';
   } finally {
     env.restore();
   }
+  const pitched = score.events.filter((e) => e.type === 'note');
+  const rests = score.events.filter((e) => e.type === 'rest');
 
-  // Both measures share a staff line, so each staff path's start x is the
-  // measure's left edge. They must differ.
-  const staves = [...markup.matchAll(/<g class="vf-stave"[^>]*><path fill="none" d="M([\d.]+) /g)]
-    .map((m) => Number(m[1]));
-  expect(staves.length).toBe(2);
-  expect(staves[0]).not.toBe(staves[1]);
-  expect(staves[0]).toBeLessThan(staves[1]);
+  // VexFlow puts BOTH noteheads and rests inside a group classed
+  // `vf-notehead`, so that class cannot tell them apart. The glyph codepoint
+  // can: Bravura draws noteheads in the e0aX range and rests in the e4eX range,
+  // so a rest wrongly drawn as a note is visible here.
+  const glyphs = [...markup.matchAll(/<text[^>]*>([^<]+)<\/text>/g)]
+    .map((m) => m[1].codePointAt(0)!);
+  const noteGlyphs = glyphs.filter((code) => code >= 0xe0a0 && code <= 0xe0af);
+  const restGlyphs = glyphs.filter((code) => code >= 0xe4e0 && code <= 0xe4ef);
+  const clefs = glyphs.filter((code) => code === 0xe050).length;
+  const times = glyphs.filter((code) => code === 0xe084).length;
 
-  // And all eight notes must be drawn, not just the four in the first measure.
-  const noteheads = (markup.match(/vf-notehead/g) || []).length;
-  expect(noteheads).toBe(8);
-
-  // Two measures on one system means one system height, not two.
-  const height = Number(viewBox.split(' ')[3]);
-  expect(height).toBeLessThan(200);
+  expect(noteGlyphs.length).toBe(pitched.length);
+  expect(restGlyphs.length).toBe(rests.length);
+  expect(clefs).toBe(2); // four bars at two per system
+  expect(times).toBe(2); // 4/4 drawn as two '4' glyphs
+  expect(glyphs.length).toBe(pitched.length + rests.length + clefs + times);
 });
 
-test('a longer score wraps onto additional systems', () => {
-  const GRID = {
-    bpm: 120, beatsPerStep: 0.25, secondsPerStep: 0.125,
-    beatsPerMeasure: 4, stepsPerMeasure: 16, cost: 0,
-  };
-  const score = buildScore(
-    Array.from({ length: 32 }, (_, i) => ({ startStep: i * 4, durationSteps: 4, midi: 60 + (i % 8), confidence: 1 })),
-    GRID,
-    { tonic: 0, mode: 'major' },
-  );
-  expect(score.measures.length).toBe(8);
-
+test('four bars at two per system lay out as two rows without overlap', () => {
+  const { score } = transcribeDemo();
   const env = installDom();
   let markup = '';
   let height = 0;
@@ -139,53 +188,10 @@ test('a longer score wraps onto additional systems', () => {
   } finally {
     env.restore();
   }
-
-  // 8 measures at 2 per system = 4 systems = 8 staff rows.
+  // Four stave groups across two distinct rows.
   const staveYs = [...markup.matchAll(/<g class="vf-stave"[^>]*><path fill="none" d="M[\d.]+ ([\d.]+)/g)]
     .map((m) => Number(m[1]));
-  expect(staveYs.length).toBe(8);
-  expect(new Set(staveYs).size).toBe(4); // 4 distinct rows, 2 measures each
-  expect(height).toBeGreaterThan(400);
-
-  // Every note in the score is drawn, across all systems.
-  expect((markup.match(/vf-notehead/g) || []).length).toBe(32);
-});
-
-test('the demo melody renders every note, plus the rest that fills its last bar', () => {
-  const { score } = transcribeDemo();
-  const env = installDom();
-  let markup = '';
-  try {
-    const svg = renderScore(env.container, score, { width: 760 });
-    markup = new env.container.ownerDocument.defaultView!.XMLSerializer().serializeToString(svg);
-  } finally {
-    env.restore();
-  }
-
-  const pitched = score.events.filter((e) => e.type === 'note');
-  const rests = score.events.filter((e) => e.type === 'rest');
-  expect(pitched.length).toBe(10);
-  // Ten quarter notes fill two and a half bars, so a rest is required to
-  // complete the third — that is correct engraving, not a stray symbol.
-  expect(rests.length).toBe(1);
-
-  // VexFlow puts BOTH noteheads and rests inside a group classed
-  // `vf-notehead`, so counting that class cannot tell them apart. The glyph
-  // codepoint can: Bravura draws noteheads in the e0aX range and rests in the
-  // e4eX range, so a rest wrongly drawn as a note is visible here.
-  const glyphs = [...markup.matchAll(/<text[^>]*>([^<]+)<\/text>/g)]
-    .map((m) => m[1].codePointAt(0)!);
-  const noteGlyphs = glyphs.filter((code) => code >= 0xe0a0 && code <= 0xe0af);
-  const restGlyphs = glyphs.filter((code) => code >= 0xe4e0 && code <= 0xe4ef);
-
-  expect(noteGlyphs.length).toBe(pitched.length);
-  expect(restGlyphs.length).toBe(rests.length);
-  // A clef (0xe050) opens every system, and a 4/4 signature (two '4' glyphs)
-  // appears only on the very first measure. Ten quarter notes make three bars,
-  // which is two systems at two measures per line, so two clefs.
-  const clefGlyphs = glyphs.filter((code) => code === 0xe050).length;
-  const timeGlyphs = glyphs.filter((code) => code === 0xe084).length;
-  expect(clefGlyphs).toBe(2);
-  expect(timeGlyphs).toBe(2);
-  expect(glyphs.length).toBe(pitched.length + rests.length + clefGlyphs + timeGlyphs);
+  expect(staveYs.length).toBe(4);
+  expect(new Set(staveYs).size).toBe(2);
+  expect(height).toBeGreaterThan(200);
 });

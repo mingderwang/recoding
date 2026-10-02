@@ -105,14 +105,42 @@ test('analyzeTrack reports progress monotonically to 1', () => {
   for (let i = 1; i < seen.length; i++) expect(seen[i]).toBeGreaterThanOrEqual(seen[i - 1]);
 });
 
-test('octave correction folds a half-frequency glitch back up', () => {
+test('a one-frame octave glitch does not hijack the notes after it', () => {
+  // A single bad frame must not become the reference for everything
+  // following it. Measured on the demo phrase, one frame reading 48.0 inside a
+  // C5 dragged the whole note down two octaves, and nothing pulled it back.
+  //
+  // The isolation is the median filter's job; the octave corrector
+  // deliberately refuses a jump that does not persist, so it cannot do this
+  // kind of damage on its own. This test covers the end result rather than
+  // which of the two stages handles it.
   const points: F0Point[] = [
-    { time: 0, hz: 440, voiced: 1 },
-    { time: 0.1, hz: 220, voiced: 1 }, // dropped an octave for one frame
-    { time: 0.2, hz: 440, voiced: 1 },
+    { time: 0, hz: 523.25, voiced: 1, clarity: 0.96 },
+    { time: 0.1, hz: 130.8, voiced: 1, clarity: 0.73 }, // two octaves out
+    { time: 0.2, hz: 523.25, voiced: 1, clarity: 0.96 },
+    { time: 0.3, hz: 523.25, voiced: 1, clarity: 0.96 },
+    { time: 0.4, hz: 523.25, voiced: 1, clarity: 0.96 },
   ];
-  const fixed = smoothTrack(points, { medianRadius: 0, octaveTolerance: 0.75 });
-  expect(hzToMidi(fixed[1].hz)).toBeCloseTo(69, 1);
+  const fixed = smoothTrack(points);
+  const after = fixed.filter((p) => p.hz > 0).map((p) => hzToMidi(p.hz));
+  // Every surviving frame should be the real pitch, C5 at midi 72.
+  expect(Math.max(...after)).toBeCloseTo(72, 1);
+  expect(Math.min(...after)).toBeCloseTo(72, 1);
+});
+
+test('octave correction still folds a SUSTAINED sub-harmonic back up', () => {
+  // The case the corrector exists for: a real octave-down error that lasts as
+  // long as the note, which the median filter alone would keep.
+  const points: F0Point[] = [
+    { time: 0, hz: 523.25, voiced: 1, clarity: 0.96 },
+    { time: 0.1, hz: 261.6, voiced: 1, clarity: 0.95 },
+    { time: 0.2, hz: 261.6, voiced: 1, clarity: 0.95 },
+    { time: 0.3, hz: 261.6, voiced: 1, clarity: 0.95 },
+    { time: 0.4, hz: 261.6, voiced: 1, clarity: 0.95 },
+  ];
+  const fixed = smoothTrack(points, { medianRadius: 0 });
+  // Folded up an octave, not left at 261.6Hz.
+  expect(hzToMidi(fixed[3].hz)).toBeCloseTo(72, 1);
 });
 
 test('median filter removes an isolated outlier', () => {
@@ -121,7 +149,7 @@ test('median filter removes an isolated outlier', () => {
     hz,
     voiced: 1,
   }));
-  const fixed = smoothTrack(points, { medianRadius: 2, octaveTolerance: 0.75 });
+  const fixed = smoothTrack(points);
   for (const point of fixed) {
     expect(hzToMidi(point.hz)).toBeGreaterThan(68.5);
     expect(hzToMidi(point.hz)).toBeLessThan(69.5);

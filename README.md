@@ -21,6 +21,30 @@ bun run check      # typecheck app + tests
 bun run build      # static output into dist/
 ```
 
+## The demo
+
+`src/lib/audio/demo-melody.ts` is a four-bar phrase in C major, 4/4, 100bpm:
+
+| bar | notes |
+|-----|-------|
+| 1 | C4 D4 E4 F4 (quarters) |
+| 2 | G4 C5 B4 A4 (quarters, with a leap of a sixth) |
+| 3 | G4 (half) F4 E4 |
+| 4 | rest, D4 (quarter), C4 (half) |
+
+It is a test fixture as much as a feature: a synthetic phrase is the only input
+whose correct answer is known exactly, so `src/tests/demo.test.ts` asserts the
+transcription bar by bar. Building a richer demo found four real bugs that the
+earlier one-note scale had hidden.
+
+The phrase has **no vibrato, deliberately.** A vibrato of even 0.35% is six
+cents, and near the top of a note that is enough to push the detected pitch
+across a semitone boundary and back — a single held C4 measured as 60, 61, 60,
+59, 60. Those spurious transitions fragment one note into three and then
+wreck the tempo search; with vibrato the demo printed 205bpm for a phrase
+written at 100. Real singing does wobble and a recording tool has to cope with
+it, but the demo's job is to show the output for the phrase as specified.
+
 ## How it works
 
 ```

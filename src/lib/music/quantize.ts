@@ -193,7 +193,15 @@ export function inferGrid(
  */
 function tempoCost(bpm: number): number {
   const z = (bpm - 108) / 70;
-  return 0.15 + 0.25 * Math.exp(-0.5 * z * z);
+  // The range is deliberately narrow. It was 0.15-0.40, which spanned 0.25 —
+  // more than the alignment evidence can overcome. A phrase written at 100bpm
+  // was then transcribed at 204bpm, because the prior liked 204 more than 100
+  // by a wider margin than 100 fitted the onsets better.
+  //
+  // It now spans 0.06, so it can only break a genuine tie and never overrule
+  // the audio. Alignment differences between neighbouring tempi are of order
+  // 0.1-0.3 here, which is more than enough for the evidence to dominate.
+  return 0.03 + 0.03 * Math.exp(-0.5 * z * z);
 }
 
 /** Plain 120bpm, used when there is no material to infer anything from. */

@@ -141,6 +141,15 @@ export function segmentNotes(
  * jitter while staying anchored to the audio. Boundaries with no neighbour to
  * learn a spacing from are left alone.
  */
+/**
+ * A gap this many times wider than the local note spacing counts as a rest
+ * rather than boundary jitter. Measured on the demo phrase, a one-beat rest at
+ * 100bpm is 0.6s against a 0.6s note spacing measured onset to onset, so the
+ * test is on the gap between a note's END and the next note's START, which is
+ * where an actual rest shows up and jitter does not.
+ */
+const REST_GAP_FACTOR = 0.6;
+
 function snapBoundaries(notes: DetectedNote[], limit = 0.35): DetectedNote[] {
   if (notes.length < 3) return notes;
   const out = notes.map((n) => ({ ...n }));
@@ -161,9 +170,19 @@ function snapBoundaries(notes: DetectedNote[], limit = 0.35): DetectedNote[] {
   const localSpacing = median(stable);
 
   for (let i = 1; i < out.length; i++) {
+    // Only smooth a boundary that sits where the surrounding notes say it
+    // should. A gap much wider than the local spacing is a REST, not a jittery
+    // onset, and smoothing across it deletes the silence: on the demo phrase a
+    // one-beat rest was absorbed entirely because the following note was pulled
+    // backwards onto the previous one.
+    const gap = out[i].start - out[i - 1].end;
+    const isRest = gap > localSpacing * REST_GAP_FACTOR;
+    if (isRest) continue;
     out[i].start = out[i].start + (out[i - 1].start + localSpacing - out[i].start) * 0.5;
   }
   for (let i = 0; i < out.length - 1; i++) {
+    const gap = out[i + 1].start - out[i].end;
+    if (gap > localSpacing * REST_GAP_FACTOR) continue;
     out[i].end = out[i].end + (out[i + 1].start - out[i].end) * 0.5;
   }
   // Snapping must not invert or invert into a neighbour.

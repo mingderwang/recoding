@@ -34,11 +34,14 @@ const title = 'Recoding — sing, and see the score';
         <div class="controls">
           <button class="button button-primary" id="record" type="button">Record</button>
           <button class="button" id="stop" type="button" hidden>Stop</button>
-          <button class="button button-quiet" id="demo" type="button">Try a demo tone</button>
+          <button class="button button-quiet" id="demo" type="button">Try a demo melody</button>
+          <button class="button button-quiet" id="restart" type="button" hidden>Record again</button>
         </div>
 
         <p class="status" id="status" role="status">
-          Everything runs in this tab. Nothing is uploaded.
+          Everything runs in this tab. Nothing is uploaded. The demo melody is a
+          four-bar phrase in C major, with a leap, a held note and a rest, so
+          you can see the whole pipeline work before allowing microphone access.
         </p>
         <div class="progress" id="progress" hidden><div class="progress-fill" id="progress-fill"></div></div>
       </section>
@@ -73,7 +76,6 @@ const title = 'Recoding — sing, and see the score';
           <button class="button button-quiet" id="download-midi" type="button">Download MIDI</button>
           <button class="button button-quiet" id="download-svg" type="button">Download SVG</button>
           <button class="button button-quiet" id="download-png" type="button">Download PNG</button>
-          <button class="button button-quiet" id="restart" type="button">Record again</button>
         </div>
       </section>
 

@@ -60,7 +60,7 @@ if (voiced.length > 0) {
 }
 
 const track = frames.map((f) => ({ time: f.time, hz: f.hz, voiced: f.hz > 0 ? 1 : 0 }));
-const smoothed = smoothTrack(track, { medianRadius: 2, octaveTolerance: 0.75 });
+const smoothed = smoothTrack(track);
 const notes = segmentNotes(smoothed, {
   ...DEFAULT_SEGMENT_OPTIONS,
   frameDuration: DEFAULT_TRACK_OPTIONS.hopSize / sampleRate,

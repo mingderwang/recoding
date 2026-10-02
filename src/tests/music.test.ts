@@ -51,7 +51,7 @@ function transcribe(signal: Float32Array) {
     hz: f.hz,
     voiced: f.hz > 0 ? 1 : 0,
   }));
-  const smoothed = smoothTrack(track, { medianRadius: 2, octaveTolerance: 0.75 });
+  const smoothed = smoothTrack(track);
   const notes = segmentNotes(smoothed, {
     ...DEFAULT_SEGMENT_OPTIONS,
     frameDuration: HOP / SAMPLE_RATE,
