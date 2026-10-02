@@ -9,6 +9,7 @@ import { renderScore } from '../lib/ui/render-score';
 import { downloadBlob, downloadPng, downloadSvg } from '../lib/ui/export-image';
 import { scoreToMidi } from '../lib/music/midi';
 import { ScorePlayer } from '../lib/audio/score-player';
+import { resetTake, type TakeState } from '../lib/audio/take-lifecycle';
 import { keyLabel, midiToPitchClass } from '../lib/music/notes';
 import type { Score } from '../lib/music/score';
 import type { AnalyzeResponse } from '../lib/workers/analyze.worker';
@@ -47,7 +48,8 @@ const ui = {
 };
 
 let recorder: Recorder | null = null;
-let handle: RecorderHandle | null = null;
+// The current take lives in `take` (see take-lifecycle) rather than in a
+// separate `handle` variable, so there is only one thing to clear on reset.
 let audio: HTMLAudioElement | null = null;
 let currentScore: Score | null = null;
 let currentSvg: SVGSVGElement | null = null;
@@ -145,7 +147,8 @@ ui.demo.addEventListener('click', async () => {
 // ------------------------------------------------------------------ analysis
 
 async function handleResult(result: RecorderHandle): Promise<void> {
-  handle = result;
+  take.blob = result.blob;
+  take.duration = result.duration;
   setState('analysing');
   ui.progressFill.style.transform = 'scaleX(0)';
   say('Listening for the notes…');
@@ -216,7 +219,11 @@ function showScore(
   player.stop();
   ui.playScore.textContent = 'Play transcription';
   ui.playScore.dataset.playing = 'false';
-  ui.playheadLabel.textContent = '';
+
+  // Release the PREVIOUS take before adopting the new one. Without this, a
+  // second recording replaced the score while "Play recording" went on
+  // replaying the first take and the playhead quoted its duration.
+  releaseAudio();
 
   currentScore = score;
   setState('done');
@@ -248,15 +255,21 @@ function showScore(
 }
 
 ui.play.addEventListener('click', () => {
-  if (!handle) return;
+  // No take to play, e.g. straight after a reset.
+  if (!take.blob) return;
   if (!audio) {
-    audio = new Audio(URL.createObjectURL(handle.blob));
-    audio.addEventListener('timeupdate', () => {
-      ui.playheadLabel.textContent = `${audio!.currentTime.toFixed(1)}s / ${handle!.duration.toFixed(1)}s`;
+    // Captured by value: a late `timeupdate` must report THIS take's duration,
+    // not whatever `take` holds by the time the event fires.
+    const duration = take.duration;
+    const element = new Audio(URL.createObjectURL(take.blob));
+    element.addEventListener('timeupdate', () => {
+      ui.playheadLabel.textContent = `${element.currentTime.toFixed(1)}s / ${duration.toFixed(1)}s`;
     });
-    audio.addEventListener('ended', () => {
+    element.addEventListener('ended', () => {
       ui.playheadLabel.textContent = '';
+      ui.play.textContent = 'Play recording';
     });
+    audio = element;
   }
   if (audio.paused) {
     void audio.play();
@@ -327,17 +340,33 @@ ui.downloadPng.addEventListener('click', async () => {
   }
 });
 
+/** The current take, so its lifecycle can be reset through tested code. */
+const take: TakeState = { blob: null, duration: 0 };
+
+/**
+ * Release the recorded-audio player, the blob behind it, and the labels that
+ * describe it. Called on reset and whenever a new result arrives.
+ */
+function releaseAudio(): void {
+  resetTake(take, audio, () => { audio = null; }, {
+    playButton: ui.play,
+    playhead: ui.playheadLabel,
+  });
+}
+
 ui.restart.addEventListener('click', () => {
-  if (audio) {
-    audio.pause();
-    audio.currentTime = 0;
-  }
   // Stop the synthesised playback too, or it keeps sounding over the next take
   // and its playhead label fights the recording's.
   player.stop();
   ui.playScore.textContent = 'Play transcription';
   ui.playScore.dataset.playing = 'false';
-  ui.playheadLabel.textContent = '';
+
+  // Drop the previous take. Pausing alone left the blob and the audio element
+  // in place, so "Play recording" replayed the old recording after a reset, its
+  // button still read "Stop playback", and the playhead quoted the old
+  // duration.
+  releaseAudio();
+
   ui.summary.innerHTML = '';
   ui.scoreHost.innerHTML = '';
   currentScore = null;
