@@ -55,6 +55,7 @@ test('the built page contains the controls the app drives', () => {
     'record', 'stop', 'demo', 'status', 'level', 'level-fill',
     'pitch-readout', 'pitch-label', 'timer', 'progress', 'progress-fill',
     'results', 'summary', 'score-host', 'play', 'playhead-label',
+    'play-score', 'transpose',
     'download-midi', 'download-svg', 'download-png', 'restart',
   ]) {
     expect(html).toContain(`id="${id}"`);

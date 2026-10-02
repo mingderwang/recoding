@@ -38,9 +38,27 @@ mic ──► MediaRecorder ──► Blob ──► decodeAudioData ──► m
                                             │
                     ┌───────────────────────┼───────────────────────┐
                     ▼                       ▼                       ▼
-             ui/render-score          music/midi             playback
-             (VexFlow 5 → SVG)        (SMF format 0)    (the recorded blob)
+             ui/render-score          music/midi          audio/score-player
+             (VexFlow 5 → SVG)        (SMF format 0)      (Web Audio synth)
 ```
+
+### Playback
+
+There are two distinct play buttons, and the distinction matters:
+
+- **Play recording** — your original audio, straight from the blob.
+- **Play transcription** — the app's own claim about what you sang,
+  synthesised from the score model. Hearing it next to the original is the
+  only real way to tell whether the transcription is right, which is why it is
+  a separate control rather than a toggle on the same one.
+
+The synth plays the score directly rather than decoding the exported MIDI, so
+what you hear is exactly what the score says, ties and rests included. The tone
+is a plain decaying sine with two quiet harmonics and a low-pass: deliberately
+obviously synthetic, because a realistic instrument tone would imply a fidelity
+the transcription does not have. There is a transpose control, since a
+transcription can land an octave or two from where you sang and it is useful to
+hear it at the pitch you intended.
 
 Analysis runs offline over the decoded buffer rather than live during
 recording. Real-time per-frame analysis drops frames under load and cannot be

@@ -49,6 +49,23 @@ const title = 'Recoding — sing, and see the score';
 
         <div class="playback">
           <button class="button" id="play" type="button">Play recording</button>
+          <button class="button button-score" id="play-score" type="button" data-playing="false">Play transcription</button>
+          <label class="transpose">
+            <span>Transpose</span>
+            <select id="transpose">
+              <option value="-12">−12</option>
+              <option value="-7">−7</option>
+              <option value="-5">−5</option>
+              <option value="-3">−3</option>
+              <option value="-1">−1</option>
+              <option value="0" selected>0</option>
+              <option value="1">+1</option>
+              <option value="3">+3</option>
+              <option value="5">+5</option>
+              <option value="7">+7</option>
+              <option value="12">+12</option>
+            </select>
+          </label>
           <span class="hint" id="playhead-label"></span>
         </div>
 

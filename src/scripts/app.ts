@@ -8,6 +8,7 @@ import { synthesizeDemoMelody } from '../lib/audio/demo-melody';
 import { renderScore } from '../lib/ui/render-score';
 import { downloadBlob, downloadPng, downloadSvg } from '../lib/ui/export-image';
 import { scoreToMidi } from '../lib/music/midi';
+import { ScorePlayer } from '../lib/audio/score-player';
 import { keyLabel, midiToPitchClass } from '../lib/music/notes';
 import type { Score } from '../lib/music/score';
 import type { AnalyzeResponse } from '../lib/workers/analyze.worker';
@@ -37,6 +38,8 @@ const ui = {
   scoreHost: el<HTMLDivElement>('score-host'),
   play: el<HTMLButtonElement>('play'),
   playheadLabel: el<HTMLSpanElement>('playhead-label'),
+  playScore: el<HTMLButtonElement>('play-score'),
+  transpose: el<HTMLSelectElement>('transpose'),
   downloadMidi: el<HTMLButtonElement>('download-midi'),
   downloadSvg: el<HTMLButtonElement>('download-svg'),
   downloadPng: el<HTMLButtonElement>('download-png'),
@@ -50,6 +53,8 @@ let currentScore: Score | null = null;
 let currentSvg: SVGSVGElement | null = null;
 let timerHandle = 0;
 let state: 'idle' | 'recording' | 'analysing' | 'done' = 'idle';
+
+const player = new ScorePlayer();
 
 function setState(next: typeof state): void {
   state = next;
@@ -204,6 +209,12 @@ function showScore(
   key: { tonic: number; mode: 'major' | 'minor' },
   confidence: number,
 ): void {
+  // A fresh result replaces the old one, so anything still sounding must stop.
+  player.stop();
+  ui.playScore.textContent = 'Play transcription';
+  ui.playScore.dataset.playing = 'false';
+  ui.playheadLabel.textContent = '';
+
   currentScore = score;
   setState('done');
 
@@ -253,6 +264,44 @@ ui.play.addEventListener('click', () => {
   }
 });
 
+// Play back the TRANSCRIPTION, which is a different thing from playing back the
+// recording: this is the app's own claim about what you sang, so hearing it next
+// to the original is the only way to tell whether the transcription is right.
+ui.playScore.addEventListener('click', async () => {
+  if (!currentScore) return;
+  if (player.isPlaying) {
+    player.stop();
+    return;
+  }
+  const transpose = Number(ui.transpose.value) || 0;
+  try {
+    await player.play(currentScore, {
+      transpose,
+      onProgress: (seconds) => {
+        ui.playheadLabel.textContent = `${seconds.toFixed(1)}s / ${player.length.toFixed(1)}s`;
+      },
+      onEnd: () => {
+        ui.playScore.textContent = 'Play transcription';
+        ui.playScore.dataset.playing = 'false';
+        ui.playheadLabel.textContent = '';
+      },
+    });
+    ui.playScore.textContent = 'Stop';
+    ui.playScore.dataset.playing = 'true';
+  } catch (error) {
+    say(`Could not play the transcription: ${(error as Error).message}`, 'error');
+  }
+});
+
+ui.transpose.addEventListener('change', () => {
+  // Replay from the top with the new transposition rather than leaving a
+  // half-finished render playing at the old pitch.
+  if (player.isPlaying) {
+    player.stop();
+    void player.play(currentScore!, { transpose: Number(ui.transpose.value) || 0 });
+  }
+});
+
 ui.downloadMidi.addEventListener('click', () => {
   if (!currentScore) return;
   const bytes = scoreToMidi(currentScore);
@@ -280,6 +329,12 @@ ui.restart.addEventListener('click', () => {
     audio.pause();
     audio.currentTime = 0;
   }
+  // Stop the synthesised playback too, or it keeps sounding over the next take
+  // and its playhead label fights the recording's.
+  player.stop();
+  ui.playScore.textContent = 'Play transcription';
+  ui.playScore.dataset.playing = 'false';
+  ui.playheadLabel.textContent = '';
   ui.summary.innerHTML = '';
   ui.scoreHost.innerHTML = '';
   currentScore = null;
