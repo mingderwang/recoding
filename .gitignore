@@ -5,3 +5,9 @@ dist/
 *.tsbuildinfo
 .DS_Store
 .vercel
+
+# decoded audio scratch
+out/
+
+# source recording used for manual verification; not part of the app
+sample.m4a

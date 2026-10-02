@@ -81,11 +81,16 @@ export function keySignatureOf(key: Key): KeySignature {
   return { accidental, num };
 }
 
+/**
+ * Human-readable key name.
+ *
+ * The spec string already names the key correctly, including the minor suffix,
+ * so it is used directly. An earlier version remapped the tonic through a
+ * hand-written table to "show the real tonic" and reported C# minor as "Am" —
+ * which hid a genuine key-detection error behind a plausible-looking label.
+ */
 export function keyLabel(key: Key): string {
-  const spec = vexflowKeySpec(key);
-  if (key.mode === 'major') return spec;
-  // VexFlow's Am/Dm spec doubles for the relative major; show the real tonic.
-  return `${LETTER_NAMES[[0, 5, 2, 7, 4, 9, 6, 11, 8, 3, 10, 5][key.tonic]] ?? 'C'}${key.mode === 'minor' ? 'm' : ''}`;
+  return vexflowKeySpec(key);
 }
 
 export function scaleSteps(key: Key): number[] {

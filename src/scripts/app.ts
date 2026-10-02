@@ -4,6 +4,7 @@
  * more code than the UI it managed.
  */
 import { Recorder, MicrophoneError, decodeToMono, type RecorderHandle } from '../lib/audio/recorder';
+import { synthesizeDemoMelody } from '../lib/audio/demo-melody';
 import { renderScore } from '../lib/ui/render-score';
 import { downloadBlob, downloadPng, downloadSvg } from '../lib/ui/export-image';
 import { scoreToMidi } from '../lib/music/midi';
@@ -288,37 +289,6 @@ ui.restart.addEventListener('click', () => {
 });
 
 // -------------------------------------------------------------------- helpers
-
-/**
- * A short C major melody rendered as samples.
- *
- * Runs through the identical analysis path as a recording, so it exercises the
- * whole pipeline rather than a shortcut, and lets someone see the output
- * before deciding to allow microphone access.
- */
-async function synthesizeDemoMelody(sampleRate: number): Promise<Float32Array> {
-  const notes = [60, 62, 64, 65, 67, 67, 65, 64, 62, 60];
-  const noteSeconds = 0.42;
-  const total = Math.round(notes.length * noteSeconds * sampleRate);
-  const out = new Float32Array(total);
-  let cursor = 0;
-  for (const midi of notes) {
-    const frequency = 440 * Math.pow(2, (midi - 69) / 12);
-    const count = Math.round(noteSeconds * sampleRate);
-    const ramp = Math.round(0.02 * sampleRate);
-    for (let i = 0; i < count; i++) {
-      const t = i / sampleRate;
-      let value = 0.5 * Math.sin(2 * Math.PI * frequency * t);
-      value += 0.2 * Math.sin(2 * Math.PI * 2 * frequency * t);
-      value += 0.08 * Math.sin(2 * Math.PI * 3 * frequency * t);
-      if (i < ramp) value *= i / ramp;
-      if (i > count - ramp) value *= (count - i) / ramp;
-      out[cursor + i] = value;
-    }
-    cursor += count;
-  }
-  return out;
-}
 
 /** Minimal 16-bit PCM WAV wrapper, so the demo plays back in the browser. */
 async function encodeWav(samples: Float32Array, sampleRate: number): Promise<Blob> {

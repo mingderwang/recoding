@@ -1,4 +1,4 @@
-import { SVGContext, Stave, StaveNote, Beam, Accidental, StaveTie, Voice, Formatter } from 'vexflow';
+import { SVGContext, Stave, StaveNote, Beam, Accidental, StaveTie, Voice, Formatter, BarlineType } from 'vexflow';
 import { keySignatureOf, spell, vexflowKeySpec } from '../music/notes';
 import type { Score, ScoreEvent } from '../music/score';
 
@@ -42,13 +42,19 @@ export interface RenderOptions {
  * the measure count and draw into a caller-owned container.
  */
 export function renderScore(container: HTMLElement, score: Score, options: RenderOptions = {}): SVGSVGElement {
-  const measuresPerSystem = options.measuresPerSystem ?? (score.measures.length <= 2 ? 1 : score.measures.length <= 6 ? 2 : 4);
+  // How many measures fit on one line. Two is the readable default for a
+  // single melodic line; more only when the caller says so.
+  const measuresPerSystem = Math.max(1, options.measuresPerSystem ?? 2);
   const systems: Score['measures'][] = [];
   for (let i = 0; i < score.measures.length; i += measuresPerSystem) {
     systems.push(score.measures.slice(i, i + measuresPerSystem));
   }
+  if (systems.length === 0) systems.push([]);
 
-  const width = options.width ?? LEFT_GUTTER + measuresPerSystem * MEASURE_WIDTH + 24;
+  // Width is driven by the widest system, so a short final line does not make
+  // the whole page jump when the measures-per-line count changes.
+  const widestSystem = Math.max(1, ...systems.map((system) => system.length));
+  const width = options.width ?? LEFT_GUTTER + widestSystem * MEASURE_WIDTH + 24;
   const height = systems.length * SYSTEM_HEIGHT + 16;
 
   // VexFlow appends its own <svg> to the container, so anything already there
@@ -61,41 +67,37 @@ export function renderScore(container: HTMLElement, score: Score, options: Rende
   const svg = context.svg;
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   svg.setAttribute('class', 'score-svg');
-  svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   svg.setAttribute('role', 'img');
   svg.setAttribute('aria-label', 'Engraved score');
 
   const keySpec = vexflowKeySpec(score.key);
   const signature = keySignatureOf(score.key);
   const clef = clefForScore(score);
+  const availableWidth = width - LEFT_GUTTER - 24;
 
-  // VexFlow loads its music font asynchronously on first use. Drawing before it
-  // arrives yields glyphs that are visibly wrong, so the caller re-renders once
-  // `document.fonts.ready` settles.
-  const first = systems[0] ?? [];
-  first.forEach((measure, indexInSystem) => {
-    const top = 24 + systems.indexOf(first) * 0 * SYSTEM_HEIGHT;
-    drawMeasure(context, score, measure, {
-      x: LEFT_GUTTER,
-      y: top,
-      width: width - LEFT_GUTTER - 24,
-      clef,
-      keySpec,
-      signature,
-      showTimeSignature: indexInSystem === 0,
-    });
-  });
+  systems.forEach((system, systemIndex) => {
+    const top = 24 + systemIndex * SYSTEM_HEIGHT;
+    if (system.length === 0) return;
 
-  systems.slice(1).forEach((system, systemIndex) => {
+    // Each measure on the system gets its own slice of the width. Previously
+    // every measure was drawn at the same x with the full width, so all but
+    // the first were painted directly on top of it.
     system.forEach((measure, indexInSystem) => {
+      const measureWidth = availableWidth / system.length;
       drawMeasure(context, score, measure, {
-        x: LEFT_GUTTER,
-        y: 24 + (systemIndex + 1) * SYSTEM_HEIGHT,
-        width: width - LEFT_GUTTER - 24,
+        x: LEFT_GUTTER + indexInSystem * measureWidth,
+        y: top,
+        width: measureWidth,
         clef,
         keySpec,
         signature,
-        showTimeSignature: false,
+        // Clef, key and time go on the first measure of the first system only;
+        // the rest of that system continues, and later systems are assumed to
+        // be a continuation of the same piece.
+        showClefAndKey: indexInSystem === 0,
+        showTimeSignature: indexInSystem === 0 && systemIndex === 0,
+        // A barline between measures, but not at the start of a system.
+        startBarline: indexInSystem > 0,
       });
     });
   });
@@ -110,14 +112,22 @@ interface MeasureLayout {
   clef: 'treble' | 'bass';
   keySpec: string;
   signature: { accidental: '#' | 'b' | null; num: number };
+  /** Clef and key signature — first measure of each system. */
+  showClefAndKey: boolean;
+  /** Time signature — very first measure of the piece only. */
   showTimeSignature: boolean;
+  /** Draw a barline at the start of this measure. */
+  startBarline: boolean;
 }
 
 function drawMeasure(context: SVGContext, score: Score, measure: Score['measures'][number], layout: MeasureLayout): void {
   const stave = new Stave(layout.x, layout.y, layout.width);
-  stave.addClef(layout.clef);
-  if (layout.signature.num > 0) stave.addKeySignature(layout.keySpec);
+  if (layout.showClefAndKey) {
+    stave.addClef(layout.clef);
+    if (layout.signature.num > 0) stave.addKeySignature(layout.keySpec);
+  }
   if (layout.showTimeSignature) stave.addTimeSignature('4/4');
+  if (layout.startBarline) stave.setBegBarType(BarlineType.SINGLE);
   stave.setContext(context).draw();
 
   const events = score.events.filter(

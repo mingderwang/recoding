@@ -90,6 +90,52 @@ resolution) and scores each candidate on:
   longer than a sixteenth note. `segmentNotes` snaps boundaries to the median
   onset spacing to compensate, but very fast runs may still come out uneven.
 
+### Guitar does not work, and the reason is structural
+
+Tested against a real recording of a plucked low E (`sample.m4a`). The
+transcription is wrong, and it is worth being precise about why rather than
+blaming the peak picker.
+
+Measured partial magnitudes at t=2.6s:
+
+| partial | frequency | magnitude |
+|---------|-----------|-----------|
+| h1 | 82.4 Hz | 9.1 |
+| h3 | 247.2 Hz | 37.3 |
+| h6 | 494.4 Hz | **92.7** |
+| h9 | 741.7 Hz | 19.3 |
+| h10 | 824.1 Hz | 36.5 |
+
+The fundamental sits at ~10% of the strongest partial and **is not a local
+spectral peak** (its neighbours measure 1.5 and 8.1). A windowed FFT of usable
+length cannot see it at all.
+
+Four spectral approaches were implemented and measured on this file. All landed
+on a harmonic:
+
+| method | result at t=2.6s |
+|--------|------------------|
+| tallest spectral peak | 495 Hz (h6) |
+| sub-harmonic summation | 248 Hz (h3) |
+| harmonic product spectrum | 75 Hz (nearest, but pinned) |
+| normalised harmonic-series scoring | 246 Hz |
+
+The ambiguity is structural rather than a scoring failure: if the signal is
+periodic at `tau`, it also correlates at `2*tau` and `3*tau`, so *every* divisor
+of the true period has a full harmonic series present. No scoring function over
+this spectrum can separate them without extra assumptions.
+
+Phase-vocoder refinement of an already-chosen peak *does* work well (246.24 Hz,
+sub-cent precision) but can only refine a choice, not make it.
+
+The app targets a solo singing voice, where the fundamental is the strongest
+partial and this ambiguity does not arise. Supporting guitar properly needs a
+fundamental-candidate model or true multi-pitch detection — a substantially
+larger piece of work than a better peak rule, and not something to bolt on.
+
+`src/tests/recording.test.ts` carries the three failing assertions as `todo`
+tests so the limitation stays visible in the test output.
+
 ## Notes on the tests
 
 The engraving tests run VexFlow against a real DOM (jsdom) and assert on the
