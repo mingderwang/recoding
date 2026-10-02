@@ -76,6 +76,15 @@ const title = 'Recoding — sing, and see the score';
       </footer>
     </main>
 
-    <script type="module" src="../scripts/app.ts"></script>
+    <!--
+      Astro only bundles a <script> with a bare `src` (no type="module") or an
+      imported entry. A hand-written `type="module" src="../..."` is copied to
+      the HTML verbatim, so the built page shipped a dead relative path and no
+      JavaScript at all. Importing the entry is what gets it bundled and
+      hashed.
+    -->
+    <script>
+      import '../scripts/app.ts';
+    </script>
   </body>
 </html>
