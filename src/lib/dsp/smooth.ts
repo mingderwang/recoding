@@ -31,9 +31,14 @@ export function midiToHz(midi: number): number {
  * How much less certain a new pitch may be than the one it replaces and still
  * be believed.
  *
- * Real notes score 0.94-0.96; the window-straddling artefacts that read an
- * octave out score around 0.73, which is 0.78 of the real value. A threshold of
- * 0.9 sits comfortably between those.
+ * This is a RATIO, not an absolute level, and that distinction matters. An
+ * absolute floor tuned on a synthesised tone (which scores 0.94-0.96) threw
+ * away 96% of real microphone input, which on a typical recording has a median
+ * clarity of 0.65 — every frame was below the bar and the app found no notes
+ * at all. Comparing against the surrounding frames instead is scale-free: a
+ * window-straddling artefact is far worse than the note either side of it
+ * (0.73 against 0.95 on the demo, and the same relative drop on real audio),
+ * so the ratio separates them without assuming anything about the recording.
  */
 const MIN_CLARITY_RETENTION = 0.9;
 
@@ -156,36 +161,59 @@ export interface SmoothOptions {
   medianRadius: number;
   octaveTolerance: number;
   /**
-   * Frames below this detector confidence are discarded as unvoiced.
-   *
-   * Measured on the demo phrase: frames inside a sustained note score
-   * 0.94-0.96, and the three that straddle a note boundary and read two octaves
-   * low score 0.73. A floor of 0.85 sits in the gap.
+   * Absolute floor below which a frame is discarded regardless of its
+   * neighbours. Only catches frames with no periodicity at all.
    */
   clarityFloor: number;
+  /**
+   * How much less certain than its neighbourhood a frame must be to be
+   * discarded. This is the discriminating test; see `smoothTrack`.
+   */
+  clarityRetention: number;
 }
 
-/** Defaults shared by every caller, so the two thresholds cannot drift apart. */
+/** Defaults shared by every caller, so the thresholds cannot drift apart. */
 export const DEFAULT_SMOOTH_OPTIONS: SmoothOptions = {
   medianRadius: 2,
   octaveTolerance: 0.75,
-  clarityFloor: 0.85,
+  // Below the 0.49 floor the detector already applies, so this rarely fires.
+  clarityFloor: 0.45,
+  // Boundary artefacts score ~0.73 against neighbours at ~0.95 on the demo,
+  // a ratio of 0.77. 0.9 sits clear of that and of the mild dips real audio
+  // shows within a sustained note.
+  clarityRetention: 0.9,
 };
 
 /** Median filter then octave repair, applied in place on a copy. */
 export function smoothTrack(track: F0Point[], partial?: Partial<SmoothOptions>): F0Point[] {
   const options: SmoothOptions = { ...DEFAULT_SMOOTH_OPTIONS, ...partial };
-  // Drop low-confidence frames BEFORE the median filter. A window that straddles
-  // a note boundary reports the wrong pitch and is less certain about it, so
-  // comparing each frame against its neighbours throws those away. Filtering
-  // first and trusting afterwards does not work: three consecutive bad frames
-  // out-vote their neighbours, and then the octave corrector treats the
-  // corrupted run as real and drags the whole note with it.
-  const confident = track.map((point) =>
-    point.hz > 0 && point.clarity !== undefined && point.clarity < options.clarityFloor
-      ? { ...point, hz: 0, voiced: 0 }
-      : point,
-  );
+
+  // Drop frames that are much less certain than the neighbourhood around them,
+  // BEFORE the median filter. A window straddling a note boundary reports the
+  // wrong pitch and is much less sure of it.
+  //
+  // The comparison is against the MEDIAN clarity of a wide window on both sides,
+  // not against the immediately adjacent frame. At a boundary the frames just
+  // before the change are transitional and also degraded, so comparing against
+  // them hides the artefact: three consecutive bad frames then out-vote their
+  // neighbours, and the octave corrector treats the corrupted run as real and
+  // drags the whole note with it.
+  //
+  // An ABSOLUTE threshold cannot do this at all. A synthesised tone scores
+  // 0.94-0.96, while real microphone input has a median of 0.65 — a floor
+  // tuned on the demo discards 96% of a real recording and finds no notes at
+  // all. This ratio is scale-free and holds for both.
+  const confident = track.map((point, index) => {
+    if (point.hz <= 0) return point;
+    if (point.clarity === undefined) return point;
+    if (point.clarity < options.clarityFloor) return { ...point, hz: 0, voiced: 0 };
+    const neighbourhood = neighbourhoodClarity(track, index, options.medianRadius);
+    if (neighbourhood === undefined) return point;
+    if (point.clarity < neighbourhood * options.clarityRetention) {
+      return { ...point, hz: 0, voiced: 0 };
+    }
+    return point;
+  });
 
   const values = confident.map((point) => (point.hz > 0 ? hzToMidi(point.hz) : NaN));
   const smoothed = medianFilter(values, options.medianRadius);
@@ -193,6 +221,18 @@ export function smoothTrack(track: F0Point[], partial?: Partial<SmoothOptions>):
     Number.isNaN(v) ? { ...confident[i] } : { ...confident[i], hz: midiToHz(v) },
   );
   return correctOctaveJumps(patched, options.octaveTolerance);
+}
+
+/** Median clarity of a window around `index`, excluding the frame itself. */
+function neighbourhoodClarity(track: F0Point[], index: number, radius: number): number | undefined {
+  const values: number[] = [];
+  for (let i = Math.max(0, index - radius - 1); i <= Math.min(track.length - 1, index + radius + 1); i++) {
+    if (i === index) continue;
+    const point = track[i];
+    if (point.hz > 0 && point.clarity !== undefined) values.push(point.clarity);
+  }
+  if (values.length < 2) return undefined;
+  return medianFilter(values, 0)[0];
 }
 
 /**

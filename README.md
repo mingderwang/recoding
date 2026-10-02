@@ -21,6 +21,36 @@ bun run check      # typecheck app + tests
 bun run build      # static output into dist/
 ```
 
+## Calibration: synthetic fixtures lie
+
+The single most damaging bug in this project came from tuning a threshold on
+synthetic material.
+
+`smoothTrack` discards frames whose detector confidence is much lower than
+their surroundings, which is how note-boundary artefacts get thrown out. The
+floor was calibrated on the synthesised demo phrase, where every frame scores
+0.94-0.96, and set to 0.85.
+
+Real microphone input is nothing like that. A recording of a guitar has a
+**median frame clarity of 0.65**, so a 0.85 floor discarded 96% of it. Every
+remaining note was then shorter than the minimum duration, segmentation found
+**nothing at all**, and the app reported no pitch. It was found by a user
+singing into the microphone; every test at the time was built from synthetic
+material and all of them passed.
+
+The fix is to compare each frame against the **median clarity of its
+neighbourhood** rather than against an absolute level. A boundary artefact
+scores roughly 0.73 against neighbours at 0.95 — a ratio of 0.77 — and the same
+relative drop shows up in real audio, because the artefact is bad *relative to
+the recording it is in*. A ratio is scale-free and survives both.
+
+`src/tests/real-audio.test.ts` now runs the real recording through the pipeline
+and asserts notes come out. Its names say why it exists, so the next person to
+retune a threshold on a synthetic fixture has something pushing back.
+
+The general rule: a threshold measured on a generated signal is a guess about
+the world until it has been checked against a recorded one.
+
 ## The demo
 
 `src/lib/audio/demo-melody.ts` is a four-bar phrase in C major, 4/4, 100bpm:
