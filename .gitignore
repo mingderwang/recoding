@@ -11,3 +11,8 @@ out/
 
 # source recording used for manual verification; not part of the app
 sample.m4a
+
+# Scratch diagnostics that read a specific recording from out/, which is
+# gitignored. Kept out of the repo so a fresh clone is not full of scripts that
+# throw on a missing file.
+src/tests/probe-*.ts

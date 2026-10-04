@@ -50,16 +50,27 @@ test('every local asset the built page references actually exists', () => {
 test('the built page contains the controls the app drives', () => {
   if (!built) return;
   const html = readFileSync(join(DIST, 'index.html'), 'utf8');
-  // app.ts looks these up by id at startup and throws if any is missing.
-  for (const id of [
-    'record', 'stop', 'demo', 'status', 'level', 'level-fill',
-    'pitch-readout', 'pitch-label', 'timer', 'progress', 'progress-fill',
-    'results', 'summary', 'score-host', 'play', 'playhead-label',
-    'play-score', 'transpose',
-    'download-midi', 'download-svg', 'download-png', 'restart',
-  ]) {
+
+  // The ids are read out of app.ts rather than listed here. A hand-maintained
+  // list is a duplicate that silently goes stale: app.ts throws on a missing
+  // element at startup, so a control added to one file and not the other means
+  // a blank page with no build error and no test failure.
+  const source = readFileSync(join(process.cwd(), 'src/scripts/app.ts'), 'utf8');
+  const ids = [...source.matchAll(/\bel<[^>]*>\('([^']+)'\)/g)].map((match) => match[1]);
+
+  expect(ids.length).toBeGreaterThan(20);
+  for (const id of ids) {
     expect(html).toContain(`id="${id}"`);
   }
+});
+
+test('every element id in app.ts is looked up exactly once', () => {
+  // A duplicated lookup means two UI nodes driving one state variable, and only
+  // the first `getElementById` result is ever wired up.
+  const source = readFileSync(join(process.cwd(), 'src/scripts/app.ts'), 'utf8');
+  const ids = [...source.matchAll(/\bel<[^>]*>\('([^']+)'\)/g)].map((match) => match[1]);
+  const duplicates = ids.filter((id, index) => ids.indexOf(id) !== index);
+  expect(duplicates).toEqual([]);
 });
 
 test('vercel.json allows the microphone', () => {

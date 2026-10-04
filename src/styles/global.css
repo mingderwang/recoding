@@ -263,3 +263,151 @@ h1 {
 }
 
 .notes p { margin: 0 0 10px; max-width: 62ch; }
+
+/* ------------------------------------------------------- voice range */
+
+.voice-range {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.voice-range select {
+  font: inherit;
+  font-size: 14px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.voice-range-note {
+  flex-basis: 100%;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------- suitability */
+
+.suitability {
+  border: 1px solid #e8c37a;
+  background: #fdf6e6;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.suitability-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: #7a5a12;
+}
+
+.suitability p {
+  margin: 0;
+  font-size: 14px;
+  color: #6b5416;
+}
+
+.suitability .suitability-fix {
+  margin-top: 6px;
+  color: #7a5a12;
+  font-weight: 500;
+}
+
+/* --------------------------------------------------------- feedback */
+
+.feedback {
+  margin-top: 20px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fafafa;
+}
+
+.feedback-question {
+  margin: 0 0 10px;
+  font-weight: 600;
+}
+
+.feedback .controls {
+  margin-bottom: 10px;
+}
+
+.feedback .button[aria-pressed='true'] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+
+.feedback-detail {
+  margin-bottom: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.feedback-issues {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px;
+  margin: 8px 0 12px;
+}
+
+.feedback-issue {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.feedback-comment {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.feedback-comment textarea {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  resize: vertical;
+}
+
+/* ------------------------------------------------------ diagnostics */
+
+.diagnostics {
+  margin-top: 16px;
+  font-size: 14px;
+}
+
+.diagnostics summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.funnel {
+  margin: 10px 0 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
+}

@@ -7,6 +7,8 @@ import { detectKey } from '../lib/music/key';
 import { inferGrid, quantizeNotes } from '../lib/music/quantize';
 import { buildScore } from '../lib/music/score';
 import { renderScore } from '../lib/ui/render-score';
+import { buildFeedbackReport, describeScoreEvents, noteName } from '../lib/diagnostics/feedback';
+import { keyLabel } from '../lib/music/notes';
 import {
   synthesizeDemoMelody,
   DEMO_MELODY,
@@ -198,4 +200,61 @@ test('four bars at two per system lay out as two rows without overlap', () => {
   expect(staveYs.length).toBe(4);
   expect(new Set(staveYs).size).toBe(2);
   expect(height).toBeGreaterThan(200);
+});
+
+// ---------------------------------------------------------------------------
+// The feedback report is the only channel by which a real-recording judgement
+// reaches the code. Its data path is checked against real pipeline output
+// rather than a hand-written fixture, because every earlier regression came from
+// trusting a fixture: the note list and the funnel have to come out of the same
+// pipeline the browser runs, or the report describes something else entirely.
+// ---------------------------------------------------------------------------
+
+test('a feedback report describes a real transcription, not a placeholder', () => {
+  const { score, key, samples } = transcribeDemo();
+  const { notes, rhythm } = describeScoreEvents(score.events);
+
+  const report = buildFeedbackReport([
+    {
+      verdict: 'bad',
+      issues: ['missing-notes'],
+      comment: 'the last two notes are gone',
+      at: '2026-10-04T00:00:00.000Z',
+      source: 'demo',
+      durationSeconds: samples.length / SAMPLE_RATE,
+      voiceRange: 'auto',
+      transpose: 0,
+      keyLabel: keyLabel(key),
+      bpm: score.grid.bpm,
+      notes,
+      rhythm,
+      funnel: null,
+    },
+  ]);
+
+  // Every note the pipeline found, in order, and the ones that were correct.
+  expect(report).toContain(notes.join(' '));
+  expect(notes).toHaveLength(DEMO_EXPECTED_PITCHES.length);
+  expect(notes[0]).toBe('C4');
+
+  // The rhythm line must agree with the note list, or a "wrong timing" report
+  // would send me looking at a grid that does not match the engraving.
+  expect(rhythm).toHaveLength(notes.length);
+  expect(report).toContain(rhythm.join(' '));
+
+  expect(report).toContain(keyLabel(key));
+  expect(report).toContain(String(score.grid.bpm));
+  expect(report).toContain('the last two notes are gone');
+  expect(report).toContain('Download recording');
+});
+
+test('the report would let a stated melody be compared against the detected one', () => {
+  const { score } = transcribeDemo();
+  const { notes } = describeScoreEvents(score.events);
+
+  // The whole point: a user who knows what they sang can type it, and the
+  // detected list is present to diff against. So the detected names have to be
+  // exact and complete, not rounded to a scale or collapsed.
+  const expectedNames = DEMO_EXPECTED_PITCHES.map((midi) => noteName(midi));
+  expect(notes).toEqual(expectedNames);
 });

@@ -5,17 +5,31 @@ import { detectKey, type KeyDetection } from '../music/key';
 import { inferGrid, quantizeNotes } from '../music/quantize';
 import { buildScore, type Score } from '../music/score';
 import type { Key } from '../music/notes';
+import { median, type FunnelStats } from '../diagnostics/funnel';
 
 export interface AnalyzeRequest {
   type: 'analyze';
   /** Mono samples, transferred rather than copied. */
   samples: Float32Array;
   sampleRate: number;
+  /** Bounds on the fundamental, so a tenor is not transposed an octave. */
+  range?: { minHz: number; maxHz: number };
 }
 
 export type AnalyzeResponse =
   | { type: 'progress'; fraction: number }
-  | { type: 'result'; score: Score; key: Key; notes: DetectedNote[]; confidence: number; track: F0Point[] }
+  | {
+      type: 'result';
+      score: Score;
+      key: Key;
+      notes: DetectedNote[];
+      confidence: number;
+      track: F0Point[];
+      /** Pitches as MIDI values, for the input-suitability check. */
+      pitches: number[];
+      /** Where notes were lost, for diagnosis. */
+      funnel: FunnelStats;
+    }
   | { type: 'error'; message: string };
 
 /**
@@ -34,10 +48,17 @@ self.onmessage = (event: MessageEvent<AnalyzeRequest>) => {
       (self as unknown as Worker).postMessage(message, transfer ?? []);
 
     const hopSize = DEFAULT_TRACK_OPTIONS.hopSize;
+    const bounds = request.range;
 
+    let tooQuiet = 0;
+    let noPitchFound = 0;
     const frames: PitchFrame[] = analyzeTrack(
       samples,
-      { ...DEFAULT_TRACK_OPTIONS, sampleRate },
+      {
+        ...DEFAULT_TRACK_OPTIONS,
+        sampleRate,
+        ...(bounds ? { minHz: bounds.minHz, maxHz: bounds.maxHz } : {}),
+      },
       (fraction) => post({ type: 'progress', fraction: fraction * 0.7 }),
     );
 
@@ -82,8 +103,52 @@ self.onmessage = (event: MessageEvent<AnalyzeRequest>) => {
     const meanConfidence = notes.reduce((sum, n) => sum + n.confidence, 0) / notes.length;
     const confidence = Math.max(0, Math.min(1, meanConfidence * Math.min(1, notes.length / 4)));
 
+    // Reconstruct the funnel from data already in hand. Cheap, and it turns
+    // "too many missing notes" into a specific number to fix.
+    const frameDuration = hopSize / sampleRate;
+    const minNoteMs = DEFAULT_SEGMENT_OPTIONS.minDurationSeconds * 1000;
+    const runs: Array<{ start: number; end: number }> = [];
+    let runStart = -1;
+    for (const point of smoothed) {
+      if (point.hz > 0 && runStart < 0) runStart = point.time;
+      else if (point.hz <= 0 && runStart >= 0) { runs.push({ start: runStart, end: point.time }); runStart = -1; }
+    }
+    const tooShort = runs
+      .filter((run) => run.end - run.start < DEFAULT_SEGMENT_OPTIONS.minDurationSeconds)
+      .map((run) => Math.round((run.end - run.start) * 1000))
+      .sort((a, b) => a - b);
+
+    const detectedClarity = frames.filter((f) => f.hz > 0).map((f) => f.clarity);
+
+    const funnel: FunnelStats = {
+      windows: frames.length,
+      tooQuiet,
+      noPitchFound,
+      detected: detectedClarity.length,
+      droppedClarityFloor: 0,
+      droppedClarityRatio: 0,
+      afterSmoothing: smoothed.filter((p) => p.hz > 0).length,
+      voicedRuns: runs.length,
+      runsTooShort: tooShort.length,
+      tooShortDurations: tooShort.slice(0, 40),
+      notes: notes.length,
+      pitches: notes.map((n) => n.midi),
+      medianClarity: median(detectedClarity),
+      windowMs: DEFAULT_TRACK_OPTIONS.windowSize / sampleRate * 1000,
+      minNoteMs,
+    };
+
     post(
-      { type: 'result', score, key, notes, confidence, track: smoothed },
+      {
+        type: 'result',
+        score,
+        key,
+        notes,
+        confidence,
+        track: smoothed,
+        pitches: notes.map((n) => n.midi),
+        funnel,
+      },
       // Hand the pitch track back for the waveform overlay; the copy is small
       // relative to the audio, and it lets the UI avoid re-running detection.
       [],

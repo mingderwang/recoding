@@ -31,6 +31,20 @@ const title = 'Recoding — sing, and see the score';
 
         <div class="timer" id="timer">0.0s</div>
 
+        <label class="voice-range">
+          <span>Your voice</span>
+          <select id="voice-range">
+            <option value="auto" selected>Any voice</option>
+            <option value="bass">Bass / baritone</option>
+            <option value="tenor">Tenor</option>
+            <option value="alto">Alto</option>
+            <option value="soprano">Soprano</option>
+          </select>
+          <span class="voice-range-note" id="voice-range-note">
+            Narrows the pitches searched, so notes are not transposed an octave.
+          </span>
+        </label>
+
         <div class="controls">
           <button class="button button-primary" id="record" type="button">Record</button>
           <button class="button" id="stop" type="button" hidden>Stop</button>
@@ -72,11 +86,53 @@ const title = 'Recoding — sing, and see the score';
           <span class="hint" id="playhead-label"></span>
         </div>
 
+        <div class="feedback" id="feedback">
+          <p class="feedback-question">Was that the melody you sang?</p>
+          <div class="controls">
+            <button class="button button-quiet" id="feedback-good" type="button" data-verdict="good">
+              Yes, correct
+            </button>
+            <button class="button button-quiet" id="feedback-bad" type="button" data-verdict="bad">
+              No, wrong
+            </button>
+            <span class="hint" id="feedback-count"></span>
+          </div>
+
+          <div class="feedback-detail" id="feedback-detail" hidden>
+            <p class="hint">What went wrong? Pick any that apply.</p>
+            <div class="feedback-issues" id="feedback-issues"></div>
+            <label class="feedback-comment">
+              <span>Anything else</span>
+              <textarea
+                id="feedback-comment"
+                rows="2"
+                placeholder="Optional. Writing down the melody you sang is the single most useful thing you can do here."></textarea
+              >
+            </label>
+          </div>
+
+          <div class="controls">
+            <button class="button" id="copy-feedback" type="button">Copy feedback report</button>
+            <button class="button button-quiet" id="clear-feedback" type="button">Clear</button>
+          </div>
+          <p class="hint" id="feedback-status" role="status"></p>
+        </div>
+
         <div class="controls exports">
           <button class="button button-quiet" id="download-midi" type="button">Download MIDI</button>
           <button class="button button-quiet" id="download-svg" type="button">Download SVG</button>
           <button class="button button-quiet" id="download-png" type="button">Download PNG</button>
+          <button class="button button-quiet" id="download-audio" type="button">Download recording</button>
         </div>
+
+        <details class="diagnostics">
+          <summary>Diagnostics — where notes were lost</summary>
+          <pre id="funnel" class="funnel"></pre>
+          <p class="hint">
+            Whether the pitch was never found, filtered away, or discarded for being
+            short. Included in the feedback report above.
+          </p>
+        </details>
       </section>
 
       <footer class="notes">

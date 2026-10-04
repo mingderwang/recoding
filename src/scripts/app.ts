@@ -11,6 +11,23 @@ import { scoreToMidi } from '../lib/music/midi';
 import { ScorePlayer } from '../lib/audio/score-player';
 import { resetTake, type TakeState } from '../lib/audio/take-lifecycle';
 import { keyLabel, midiToPitchClass } from '../lib/music/notes';
+import { voiceRange, type VoiceRangeId } from '../lib/music/voice-range';
+import { assessInput } from '../lib/music/suitability';
+import { summariseFunnel } from '../lib/diagnostics/funnel';
+import {
+  FEEDBACK_ISSUES,
+  buildFeedbackReport,
+  clearFeedback,
+  describeScoreEvents,
+  feedbackCounts,
+  loadFeedback,
+  recordFeedback,
+  type FeedbackIssue,
+  type FeedbackRecord,
+  type FeedbackSource,
+  type FeedbackStorage,
+  type FeedbackVerdict,
+} from '../lib/diagnostics/feedback';
 import type { Score } from '../lib/music/score';
 import type { AnalyzeResponse } from '../lib/workers/analyze.worker';
 
@@ -41,6 +58,19 @@ const ui = {
   playheadLabel: el<HTMLSpanElement>('playhead-label'),
   playScore: el<HTMLButtonElement>('play-score'),
   transpose: el<HTMLSelectElement>('transpose'),
+  voiceRange: el<HTMLSelectElement>('voice-range'),
+  voiceRangeNote: el<HTMLSpanElement>('voice-range-note'),
+  feedbackGood: el<HTMLButtonElement>('feedback-good'),
+  feedbackBad: el<HTMLButtonElement>('feedback-bad'),
+  feedbackDetail: el<HTMLDivElement>('feedback-detail'),
+  feedbackIssues: el<HTMLDivElement>('feedback-issues'),
+  feedbackComment: el<HTMLTextAreaElement>('feedback-comment'),
+  feedbackCount: el<HTMLSpanElement>('feedback-count'),
+  feedbackStatus: el<HTMLParagraphElement>('feedback-status'),
+  copyFeedback: el<HTMLButtonElement>('copy-feedback'),
+  clearFeedback: el<HTMLButtonElement>('clear-feedback'),
+  funnel: el<HTMLPreElement>('funnel'),
+  downloadAudio: el<HTMLButtonElement>('download-audio'),
   downloadMidi: el<HTMLButtonElement>('download-midi'),
   downloadSvg: el<HTMLButtonElement>('download-svg'),
   downloadPng: el<HTMLButtonElement>('download-png'),
@@ -54,6 +84,10 @@ let audio: HTMLAudioElement | null = null;
 let currentScore: Score | null = null;
 let currentSvg: SVGSVGElement | null = null;
 let timerHandle = 0;
+/** The finished analysis the feedback buttons apply to, or null before one
+ * exists. Captured so a rating always describes the score on screen. */
+let rated: { record: Omit<FeedbackRecord, 'verdict' | 'issues' | 'comment' | 'at'> } | null = null;
+let verdict: FeedbackVerdict | null = null;
 let state: 'idle' | 'recording' | 'analysing' | 'done' = 'idle';
 
 const player = new ScorePlayer();
@@ -132,7 +166,7 @@ async function finishRecording(): Promise<void> {
   recorder = null;
   ui.levelFill.style.transform = 'scaleX(0)';
   describePitch(0);
-  await handleResult(result);
+  await handleResult(result, 'recording');
 }
 
 /** A synthesized melody, so the output can be seen before granting mic access. */
@@ -141,12 +175,12 @@ ui.demo.addEventListener('click', async () => {
   say('Playing a demo melody through the same pipeline…');
   const samples = await synthesizeDemoMelody(SAMPLE_RATE);
   const blob = await encodeWav(samples, SAMPLE_RATE);
-  await handleResult({ blob, duration: samples.length / SAMPLE_RATE });
+  await handleResult({ blob, duration: samples.length / SAMPLE_RATE }, 'demo');
 });
 
 // ------------------------------------------------------------------ analysis
 
-async function handleResult(result: RecorderHandle): Promise<void> {
+async function handleResult(result: RecorderHandle, source: FeedbackSource): Promise<void> {
   take.blob = result.blob;
   take.duration = result.duration;
   setState('analysing');
@@ -171,7 +205,7 @@ async function handleResult(result: RecorderHandle): Promise<void> {
   try {
     const result_ = await runAnalysis(samples);
     if (!result_) return; // the worker already reported the failure
-    showScore(result_.score, result_.key, result_.confidence);
+    showScore(result_, source);
   } catch (error) {
     setState('idle');
     say(`Analysis failed: ${(error as Error).message}`, 'error');
@@ -204,17 +238,21 @@ function runAnalysis(samples: Float32Array) {
       reject(new Error(event.message || 'the analysis worker crashed'));
     };
 
-    worker.postMessage({ type: 'analyze', samples, sampleRate: SAMPLE_RATE }, [samples.buffer]);
+    const range = voiceRange(ui.voiceRange.value as VoiceRangeId);
+    worker.postMessage(
+      { type: 'analyze', samples, sampleRate: SAMPLE_RATE, range: { minHz: range.minHz, maxHz: range.maxHz } },
+      [samples.buffer],
+    );
   });
 }
 
 // ------------------------------------------------------------------- results
 
 function showScore(
-  score: Score,
-  key: { tonic: number; mode: 'major' | 'minor' },
-  confidence: number,
+  result: Extract<AnalyzeResponse, { type: 'result' }>,
+  source: FeedbackSource,
 ): void {
+  const { score, key, confidence, pitches, funnel } = result;
   // A fresh result replaces the old one, so anything still sounding must stop.
   player.stop();
   ui.playScore.textContent = 'Play transcription';
@@ -237,15 +275,47 @@ function showScore(
         ? 'Some notes may be off — vibrato and scoops cause this.'
         : 'This came out uncertain. Try a slower, more even delivery.';
 
+  const range = voiceRange(ui.voiceRange.value as VoiceRangeId);
+  const suitability = assessInput(pitches, { range });
+
   ui.summary.innerHTML = `
+    ${
+      suitability.ok
+        ? ''
+        : `<div class="suitability" data-tone="warn">
+             <p class="suitability-title">This recording is hard to transcribe</p>
+             <p>${escapeHtml(suitability.message)}</p>
+             ${suitability.suggestion ? `<p class="suitability-fix">${escapeHtml(suitability.suggestion)}</p>` : ''}
+           </div>`
+    }
     <dl class="facts">
       <div><dt>Key</dt><dd>${escapeHtml(keyLabel(key))}</dd></div>
       <div><dt>Tempo</dt><dd>${score.grid.bpm} bpm</dd></div>
       <div><dt>Notes</dt><dd>${noteCount}</dd></div>
       <div><dt>Bars</dt><dd>${measureCount}</dd></div>
     </dl>
-    <p class="confidence">${escapeHtml(honesty)}</p>
+    <p class="confidence">${escapeHtml(suitability.ok ? honesty : 'Treat the score below with suspicion.')}</p>
   `;
+
+  // Capture the context a rating needs, before any of it can be replaced by a
+  // later take. `at` is stamped on submit so re-rating one take collapses into
+  // a single record rather than two.
+  rated = {
+    record: {
+      source,
+      durationSeconds: take.duration,
+      voiceRange: ui.voiceRange.value as VoiceRangeId,
+      transpose: Number(ui.transpose.value) || 0,
+      keyLabel: keyLabel(key),
+      bpm: score.grid.bpm,
+      ...describeScoreEvents(score.events),
+      funnel,
+    },
+  };
+  resetFeedbackUi();
+
+  ui.funnel.textContent = funnel ? summariseFunnel(funnel) : 'Not captured for this take.';
+
 
   try {
     currentSvg = renderScore(ui.scoreHost, score, { width: 760 });
@@ -309,6 +379,14 @@ ui.playScore.addEventListener('click', async () => {
   }
 });
 
+ui.voiceRange.addEventListener('change', () => {
+  const range = voiceRange(ui.voiceRange.value as VoiceRangeId);
+  ui.voiceRangeNote.textContent =
+    range.id === 'auto'
+      ? 'Narrows the pitches searched, so notes are not transposed an octave.'
+      : `Searching ${Math.round(range.minHz)}-${Math.round(range.maxHz)} Hz.`;
+});
+
 ui.transpose.addEventListener('change', () => {
   // Replay from the top with the new transposition rather than leaving a
   // half-finished render playing at the old pitch.
@@ -340,6 +418,133 @@ ui.downloadPng.addEventListener('click', async () => {
   }
 });
 
+// ------------------------------------------------------------------ feedback
+
+/**
+ * localStorage, or null when it is unavailable.
+ *
+ * Private browsing and blocked third-party storage both make the property
+ * access itself throw in some browsers, so it is probed rather than assumed.
+ */
+function feedbackStorage(): FeedbackStorage | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** Build the issue checkboxes from the module, so labels cannot drift apart. */
+function renderIssueCheckboxes(): void {
+  ui.feedbackIssues.replaceChildren(
+    ...FEEDBACK_ISSUES.map(({ id, label }) => {
+      const wrapper = document.createElement('label');
+      wrapper.className = 'feedback-issue';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.value = id;
+      const text = document.createElement('span');
+      text.textContent = label;
+      wrapper.append(box, text);
+      return wrapper;
+    }),
+  );
+}
+renderIssueCheckboxes();
+
+/** Clear the form so a new take never inherits the previous take's verdict. */
+function resetFeedbackUi(): void {
+  verdict = null;
+  ui.feedbackDetail.hidden = true;
+  ui.feedbackComment.value = '';
+  ui.feedbackStatus.textContent = '';
+  for (const box of ui.feedbackIssues.querySelectorAll('input')) box.checked = false;
+  for (const button of [ui.feedbackGood, ui.feedbackBad]) {
+    button.removeAttribute('aria-pressed');
+  }
+  renderCounts();
+}
+
+function renderCounts(): void {
+  const { good, bad } = feedbackCounts(loadFeedback(feedbackStorage()));
+  const total = good + bad;
+  ui.feedbackCount.textContent = total === 0 ? '' : `${good} good, ${bad} bad so far`;
+}
+renderCounts();
+
+function submitVerdict(next: FeedbackVerdict): void {
+  if (!rated) return;
+  verdict = next;
+  // Asking what went wrong only makes sense after a negative answer.
+  ui.feedbackDetail.hidden = next !== 'bad';
+
+  const issues = Array.from(
+    ui.feedbackIssues.querySelectorAll<HTMLInputElement>('input:checked'),
+  ).map((box) => box.value as FeedbackIssue);
+
+  recordFeedback(feedbackStorage(), {
+    ...rated.record,
+    verdict: next,
+    issues: next === 'bad' ? issues : [],
+    comment: ui.feedbackComment.value.trim(),
+    at: new Date().toISOString(),
+  });
+
+  for (const [button, value] of [
+    [ui.feedbackGood, 'good'],
+    [ui.feedbackBad, 'bad'],
+  ] as const) {
+    if (value === next) button.setAttribute('aria-pressed', 'true');
+    else button.removeAttribute('aria-pressed');
+  }
+
+  renderCounts();
+  ui.feedbackStatus.textContent =
+    next === 'bad'
+      ? 'Noted. Press "Copy feedback report" and paste it back — and please also download the recording.'
+      : 'Noted. Press "Copy feedback report" and paste it back.';
+}
+
+ui.feedbackGood.addEventListener('click', () => submitVerdict('good'));
+ui.feedbackBad.addEventListener('click', () => submitVerdict('bad'));
+
+// Re-submit when the reason changes, so the stored report never disagrees with
+// what is on screen. The checkbox and the comment are both part of the rating.
+ui.feedbackIssues.addEventListener('change', () => {
+  if (verdict) submitVerdict(verdict);
+});
+ui.feedbackComment.addEventListener('change', () => {
+  if (verdict) submitVerdict(verdict);
+});
+
+ui.copyFeedback.addEventListener('click', async () => {
+  const report = buildFeedbackReport(loadFeedback(feedbackStorage()));
+  try {
+    await navigator.clipboard.writeText(report);
+    ui.feedbackStatus.textContent = 'Copied. Paste it in the chat.';
+  } catch {
+    // Clipboard access needs a secure context and can be denied outright, so
+    // fall back to showing the text where it can be selected by hand.
+    ui.feedbackStatus.textContent = 'Could not reach the clipboard. The report is below.';
+    ui.funnel.textContent = report;
+  }
+});
+
+ui.clearFeedback.addEventListener('click', () => {
+  clearFeedback(feedbackStorage());
+  resetFeedbackUi();
+  ui.funnel.textContent = '';
+  ui.feedbackStatus.textContent = 'Cleared.';
+});
+
+ui.downloadAudio.addEventListener('click', () => {
+  if (!take.blob) return;
+  // The recorder's own mimeType is authoritative; guessing from the extension
+  // produced a .webm file holding AAC on Safari, which will not open.
+  const extension = take.blob.type.includes('mp4') ? 'm4a' : take.blob.type.includes('wav') ? 'wav' : 'webm';
+  downloadBlob(take.blob, `recoding-take.${extension}`);
+});
+
 /** The current take, so its lifecycle can be reset through tested code. */
 const take: TakeState = { blob: null, duration: 0 };
 
@@ -369,8 +574,11 @@ ui.restart.addEventListener('click', () => {
 
   ui.summary.innerHTML = '';
   ui.scoreHost.innerHTML = '';
+  ui.funnel.textContent = '';
   currentScore = null;
   currentSvg = null;
+  rated = null;
+  resetFeedbackUi();
   setState('idle');
   say('Ready when you are.');
 });
