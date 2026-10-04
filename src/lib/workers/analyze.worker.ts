@@ -1,4 +1,4 @@
-import { analyzeTrack, DEFAULT_TRACK_OPTIONS, type PitchFrame } from '../dsp/frames';
+import { analyzeTrack, DEFAULT_TRACK_OPTIONS, windowSizeForFloor, type PitchFrame } from '../dsp/frames';
 import { smoothTrack, type F0Point } from '../dsp/smooth';
 import { segmentNotes, DEFAULT_SEGMENT_OPTIONS, type DetectedNote } from '../music/segment';
 import { detectKey, type KeyDetection } from '../music/key';
@@ -49,6 +49,13 @@ self.onmessage = (event: MessageEvent<AnalyzeRequest>) => {
 
     const hopSize = DEFAULT_TRACK_OPTIONS.hopSize;
     const bounds = request.range;
+    // The window is derived from the range's floor rather than fixed: a shorter
+    // window resolves short notes a long one loses, but a window holding too few
+    // periods of a low fundamental detects nothing at all. See
+    // `windowSizeForFloor`.
+    const windowSize = bounds
+      ? windowSizeForFloor(bounds.minHz, sampleRate)
+      : DEFAULT_TRACK_OPTIONS.windowSize;
 
     let tooQuiet = 0;
     let noPitchFound = 0;
@@ -57,6 +64,7 @@ self.onmessage = (event: MessageEvent<AnalyzeRequest>) => {
       {
         ...DEFAULT_TRACK_OPTIONS,
         sampleRate,
+        windowSize,
         ...(bounds ? { minHz: bounds.minHz, maxHz: bounds.maxHz } : {}),
       },
       (fraction) => post({ type: 'progress', fraction: fraction * 0.7 }),
@@ -134,7 +142,7 @@ self.onmessage = (event: MessageEvent<AnalyzeRequest>) => {
       notes: notes.length,
       pitches: notes.map((n) => n.midi),
       medianClarity: median(detectedClarity),
-      windowMs: DEFAULT_TRACK_OPTIONS.windowSize / sampleRate * 1000,
+      windowMs: windowSize / sampleRate * 1000,
       minNoteMs,
     };
 

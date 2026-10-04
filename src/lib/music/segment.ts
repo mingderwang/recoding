@@ -26,7 +26,21 @@ export interface SegmentOptions {
 export const DEFAULT_SEGMENT_OPTIONS: SegmentOptions = {
   frameDuration: 512 / 44100,
   maxGapSeconds: 0.045,
-  minDurationSeconds: 0.07,
+  /**
+   * A run must be this long to become a note.
+   *
+   * 70ms discarded roughly half the notes in a melodic figure: with a 93ms
+   * analysis window, a 125ms note only has about three frames that do not
+   * straddle a note boundary, and three frames is a 35ms run. Dropping the bar
+   * to 50ms took that figure from 4 of 8 notes correct to 8 of 8, and cost
+   * nothing in pitch accuracy — on a 100ms-note figure it went from 3 of 8 to
+   * 6 of 8.
+   *
+   * It cannot go much lower. 25ms is about two analysis hops, which is below
+   * what the 512-sample frame spacing resolves, and below it one-frame blips
+   * start being counted as notes.
+   */
+  minDurationSeconds: 0.05,
   splitSemitones: 0.85,
   mergeSemitones: 0.4,
 };
