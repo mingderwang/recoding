@@ -27,6 +27,12 @@ export type AnalyzeResponse =
       track: F0Point[];
       /** Pitches as MIDI values, for the input-suitability check. */
       pitches: number[];
+      /**
+       * How the signal behaved during analysis, independent of the notes found.
+       * The absence of gaps between notes is the only evidence that an input had
+       * a second source in it, so it has to reach the UI.
+       */
+      source: { windows: number; tooQuiet: number; detected: number; durationSeconds: number };
       /** Where notes were lost, for diagnosis. */
       funnel: FunnelStats;
     }
@@ -57,8 +63,6 @@ self.onmessage = (event: MessageEvent<AnalyzeRequest>) => {
       ? windowSizeForFloor(bounds.minHz, sampleRate)
       : DEFAULT_TRACK_OPTIONS.windowSize;
 
-    let tooQuiet = 0;
-    let noPitchFound = 0;
     const frames: PitchFrame[] = analyzeTrack(
       samples,
       {
@@ -69,6 +73,22 @@ self.onmessage = (event: MessageEvent<AnalyzeRequest>) => {
       },
       (fraction) => post({ type: 'progress', fraction: fraction * 0.7 }),
     );
+
+    // Derived from the frames, not counted during analysis.
+    //
+    // These two were declared, never incremented, and reported as 0. Every funnel
+    // a user has pasted therefore carried two rows of fiction: "too quiet 0" and
+    // "no pitch 0". That was read as evidence — a 33.5s recording with not one
+    // silent window looked like continuous multi-source audio — when the real
+    // detected count was 2387 of 2868, so 481 windows had found no pitch after
+    // all. A plausible story built on a constant that was never wired up.
+    //
+    // `estimatePitch` returns hz 0 both for a frame below the silence floor and
+    // for one that was audible but not periodic, and both cases matter
+    // differently, so the two are separated here by the frame's RMS.
+    const floor = DEFAULT_TRACK_OPTIONS.rmsFloor;
+    const tooQuiet = frames.filter((f) => f.rms < floor).length;
+    const noPitchFound = frames.filter((f) => f.rms >= floor && f.hz <= 0).length;
 
     const track: F0Point[] = frames.map((frame) => ({
       time: frame.time,
@@ -155,6 +175,12 @@ self.onmessage = (event: MessageEvent<AnalyzeRequest>) => {
         confidence,
         track: smoothed,
         pitches: notes.map((n) => n.midi),
+        source: {
+          windows: frames.length,
+          tooQuiet,
+          detected: frames.filter((f) => f.hz > 0).length,
+          durationSeconds: samples.length / sampleRate,
+        },
         funnel,
       },
       // Hand the pitch track back for the waveform overlay; the copy is small

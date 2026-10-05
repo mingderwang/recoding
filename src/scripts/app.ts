@@ -12,7 +12,7 @@ import { ScorePlayer } from '../lib/audio/score-player';
 import { adoptTake, resetTake, type TakeState } from '../lib/audio/take-lifecycle';
 import { keyLabel, midiToPitchClass } from '../lib/music/notes';
 import { voiceRange, type VoiceRangeId } from '../lib/music/voice-range';
-import { assessInput } from '../lib/music/suitability';
+import { assessInput, assessSource } from '../lib/music/suitability';
 import { summariseFunnel } from '../lib/diagnostics/funnel';
 import {
   FEEDBACK_ISSUES,
@@ -265,7 +265,7 @@ function showScore(
   result: Extract<AnalyzeResponse, { type: 'result' }>,
   source: FeedbackSource,
 ): void {
-  const { score, key, confidence, pitches, funnel } = result;
+  const { score, key, confidence, pitches, funnel, source: signal } = result;
   // A fresh result replaces the old one, so anything still sounding must stop.
   player.stop();
   ui.playScore.textContent = 'Play transcription';
@@ -285,16 +285,26 @@ function showScore(
 
   const range = voiceRange(ui.voiceRange.value as VoiceRangeId);
   const suitability = assessInput(pitches, { range });
+  // Checked before the notes, and reported first when both fire: the absence of
+  // any silence in the recording explains a leaping, six-octave result, and
+  // telling the user their notes are missing when nothing was lost sends them
+  // looking in the wrong place entirely.
+  const continuity = assessSource(signal);
+  const blocker = continuity.continuous
+    ? { message: continuity.message as string, suggestion: continuity.suggestion }
+    : !suitability.ok
+      ? { message: suitability.message, suggestion: suitability.suggestion }
+      : null;
 
   ui.summary.innerHTML = `
     ${
-      suitability.ok
-        ? ''
-        : `<div class="suitability" data-tone="warn">
+      blocker
+        ? `<div class="suitability" data-tone="warn">
              <p class="suitability-title">This recording is hard to transcribe</p>
-             <p>${escapeHtml(suitability.message)}</p>
-             ${suitability.suggestion ? `<p class="suitability-fix">${escapeHtml(suitability.suggestion)}</p>` : ''}
+             <p>${escapeHtml(blocker.message)}</p>
+             ${blocker.suggestion ? `<p class="suitability-fix">${escapeHtml(blocker.suggestion)}</p>` : ''}
            </div>`
+        : ''
     }
     <dl class="facts">
       <div><dt>Key</dt><dd>${escapeHtml(keyLabel(key))}</dd></div>
@@ -302,7 +312,7 @@ function showScore(
       <div><dt>Notes</dt><dd>${noteCount}</dd></div>
       <div><dt>Bars</dt><dd>${measureCount}</dd></div>
     </dl>
-    <p class="confidence">${escapeHtml(suitability.ok ? honesty : 'Treat the score below with suspicion.')}</p>
+    <p class="confidence">${escapeHtml(blocker ? 'Treat the score below with suspicion.' : honesty)}</p>
   `;
 
   // Capture the context a rating needs, before any of it can be replaced by a
