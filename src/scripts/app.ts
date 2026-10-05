@@ -9,7 +9,7 @@ import { renderScore } from '../lib/ui/render-score';
 import { downloadBlob, downloadPng, downloadSvg } from '../lib/ui/export-image';
 import { scoreToMidi } from '../lib/music/midi';
 import { ScorePlayer } from '../lib/audio/score-player';
-import { resetTake, type TakeState } from '../lib/audio/take-lifecycle';
+import { adoptTake, resetTake, type TakeState } from '../lib/audio/take-lifecycle';
 import { keyLabel, midiToPitchClass } from '../lib/music/notes';
 import { voiceRange, type VoiceRangeId } from '../lib/music/voice-range';
 import { assessInput } from '../lib/music/suitability';
@@ -86,7 +86,10 @@ let currentSvg: SVGSVGElement | null = null;
 let timerHandle = 0;
 /** The finished analysis the feedback buttons apply to, or null before one
  * exists. Captured so a rating always describes the score on screen. */
-let rated: { record: Omit<FeedbackRecord, 'verdict' | 'issues' | 'comment' | 'at'> } | null = null;
+let rated: {
+  takeId: string;
+  record: Omit<FeedbackRecord, 'verdict' | 'issues' | 'comment' | 'at' | 'takeId'>;
+} | null = null;
 let verdict: FeedbackVerdict | null = null;
 let state: 'idle' | 'recording' | 'analysing' | 'done' = 'idle';
 
@@ -181,8 +184,18 @@ ui.demo.addEventListener('click', async () => {
 // ------------------------------------------------------------------ analysis
 
 async function handleResult(result: RecorderHandle, source: FeedbackSource): Promise<void> {
-  take.blob = result.blob;
-  take.duration = result.duration;
+  // Release the PREVIOUS take, then adopt this one, in that order. Doing it by
+  // hand here is what went wrong before: the release used to happen in
+  // showScore, which runs after this point, so it cleared the take that had just
+  // arrived instead of the one leaving. `take.blob` was then always null once
+  // analysis finished, which silently killed "Play recording" and "Download
+  // recording" — so the recording a user had been asked to send in to diagnose a
+  // bad transcription could not be produced at all. `take.duration` read 0 for
+  // the same reason, and every feedback report said "0.0s".
+  adoptTake(take, audio, () => { audio = null; }, {
+    playButton: ui.play,
+    playhead: ui.playheadLabel,
+  }, result);
   setState('analysing');
   ui.progressFill.style.transform = 'scaleX(0)';
   say('Listening for the notes…');
@@ -258,11 +271,6 @@ function showScore(
   ui.playScore.textContent = 'Play transcription';
   ui.playScore.dataset.playing = 'false';
 
-  // Release the PREVIOUS take before adopting the new one. Without this, a
-  // second recording replaced the score while "Play recording" went on
-  // replaying the first take and the playhead quoted its duration.
-  releaseAudio();
-
   currentScore = score;
   setState('done');
 
@@ -301,6 +309,9 @@ function showScore(
   // later take. `at` is stamped on submit so re-rating one take collapses into
   // a single record rather than two.
   rated = {
+    // Assigned once per analysis, and reused for every re-rating of it, so
+    // symptom checkboxes refine one record instead of appending new ones.
+    takeId: `take-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     record: {
       source,
       durationSeconds: take.duration,
@@ -381,10 +392,16 @@ ui.playScore.addEventListener('click', async () => {
 
 ui.voiceRange.addEventListener('change', () => {
   const range = voiceRange(ui.voiceRange.value as VoiceRangeId);
+  const search = `Searching ${Math.round(range.minHz)}-${Math.round(range.maxHz)} Hz.`;
+  // The piano preset is monophonic, which is not obvious from its label and is
+  // the single thing most likely to make it fail, so it is stated here rather
+  // than left to be discovered from a wrong score.
   ui.voiceRangeNote.textContent =
-    range.id === 'auto'
-      ? 'Narrows the pitches searched, so notes are not transposed an octave.'
-      : `Searching ${Math.round(range.minHz)}-${Math.round(range.maxHz)} Hz.`;
+    range.id === 'piano'
+      ? `${search} One note at a time — chords and overlapping notes will not read.`
+      : range.id === 'auto'
+        ? 'Narrows the pitches searched, so notes are not transposed an octave.'
+        : search;
 });
 
 ui.transpose.addEventListener('change', () => {
@@ -484,6 +501,7 @@ function submitVerdict(next: FeedbackVerdict): void {
 
   recordFeedback(feedbackStorage(), {
     ...rated.record,
+    takeId: rated.takeId,
     verdict: next,
     issues: next === 'bad' ? issues : [],
     comment: ui.feedbackComment.value.trim(),

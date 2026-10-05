@@ -46,6 +46,16 @@ export interface FeedbackRecord {
   comment: string;
   /** ISO timestamp, so reports from several takes can be ordered. */
   at: string;
+  /**
+   * Stable identity of the take this rating describes.
+   *
+   * Needed because `at` cannot serve that purpose: it is stamped on every
+   * submit, and a submit happens every time the user ticks a different
+   * symptom. A single take rated six times therefore appeared as six takes
+   * with identical notes, and a report of seven takes turned out to be one
+   * recording and six checkbox clicks.
+   */
+  takeId: string;
   source: FeedbackSource;
   durationSeconds: number;
   voiceRange: VoiceRangeId;
@@ -159,6 +169,7 @@ function isFeedbackRecord(value: unknown): value is FeedbackRecord {
   const record = value as Partial<FeedbackRecord>;
   return (
     (record.verdict === 'good' || record.verdict === 'bad') &&
+    typeof record.takeId === 'string' &&
     typeof record.comment === 'string' &&
     Array.isArray(record.notes) &&
     Array.isArray(record.rhythm) &&
@@ -172,14 +183,16 @@ function isFeedbackRecord(value: unknown): value is FeedbackRecord {
  * Re-rating happens: you listen, rate it bad, then press play against the
  * original and realise it was fine. Without the replacement the report would
  * contain both, and read as if the app contradicted itself.
+ *
+ * Identity is `takeId`, not the timestamp. A test written against a fixed `at`
+ * passed while the real app, which restamps `at` on every submit, produced one
+ * record per checkbox tick.
  */
 export function recordFeedback(
   storage: FeedbackStorage | null,
   record: FeedbackRecord,
 ): FeedbackRecord[] {
-  const existing = loadFeedback(storage).filter(
-    (r) => !(r.at === record.at && r.source === record.source && r.durationSeconds === record.durationSeconds),
-  );
+  const existing = loadFeedback(storage).filter((r) => r.takeId !== record.takeId);
   const merged = [...existing, record].slice(-MAX_FEEDBACK_RECORDS);
   saveFeedback(storage, merged);
   return merged;

@@ -1,5 +1,5 @@
-import { expect, test } from 'bun:test';
-import { DEFAULT_PLAY_LABEL, resetTake, type TakeState } from '../lib/audio/take-lifecycle';
+import { describe, expect, test } from 'bun:test';
+import { adoptTake, DEFAULT_PLAY_LABEL, resetTake, type TakeState } from '../lib/audio/take-lifecycle';
 
 /** A stand-in for the audio element that records what was done to it. */
 function fakeAudio() {
@@ -109,4 +109,69 @@ test('a non-blob source is never revoked', () => {
     globals.URL = previous;
   }
   expect(revoked).toEqual([]);
+});
+
+/**
+ * The regression that made the audio undownloadable.
+ *
+ * A user pasted a feedback report and it turned out to describe one recording
+ * reported seven times. Chasing that surfaced the real damage: every take said
+ * "0.0s", because `take.duration` was being read after something had already
+ * zeroed it. The same call had also nulled `take.blob`, so "Play recording" and
+ * "Download recording" returned early every time. The button a user had been
+ * asked to press to send in their recording was the one button that could not
+ * work.
+ */
+describe('adoptTake', () => {
+  function setup() {
+    const take: TakeState = { blob: new Blob(['old']), duration: 3 };
+    const labels = {
+      playButton: { textContent: 'Stop playback' },
+      playhead: { textContent: '1.0s / 3.0s' },
+    };
+    let released = 0;
+    return {
+      take,
+      labels,
+      releasedCount: () => released,
+      release: () => {
+        released++;
+      },
+    };
+  }
+
+  test('the new take survives, rather than being cleared by the release', () => {
+    const { take, labels, release } = setup();
+    const blob = new Blob(['new']);
+    adoptTake(take, null, release, labels, { blob, duration: 14.2 });
+
+    // The bug was `take.blob` being null here.
+    expect(take.blob).toBe(blob);
+    expect(take.blob).not.toBeNull();
+    expect(take.duration).toBe(14.2);
+  });
+
+  test('the previous take is still released', () => {
+    const { take, labels, release, releasedCount } = setup();
+    adoptTake(take, null, release, labels, { blob: new Blob(['new']), duration: 1 });
+    expect(releasedCount()).toBe(1);
+  });
+
+  test('stale labels are reset, so the playhead never quotes the old take', () => {
+    const { take, labels, release } = setup();
+    adoptTake(take, null, release, labels, { blob: new Blob(['new']), duration: 14.2 });
+    expect(labels.playButton.textContent).toBe(DEFAULT_PLAY_LABEL);
+    expect(labels.playhead.textContent).toBe('');
+  });
+
+  test('a fresh take is never null after adoption, over repeated takes', () => {
+    const take: TakeState = { blob: null, duration: 0 };
+    const labels = { playButton: { textContent: '' }, playhead: { textContent: '' } };
+    const release = () => {};
+    for (let i = 0; i < 5; i++) {
+      adoptTake(take, null, release, labels, { blob: new Blob([`take${i}`]), duration: i + 1 });
+      expect(take.blob).not.toBeNull();
+      expect(take.duration).toBe(i + 1);
+    }
+  });
 });

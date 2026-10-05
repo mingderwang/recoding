@@ -41,8 +41,18 @@ const MIN_PERIODS_PER_WINDOW = 4;
 
 /** The shortest window that resolves pitch usefully; below this, accuracy falls apart. */
 const MIN_WINDOW_SIZE = 2048;
-/** The longest window worth using; past this, short notes stop being detectable. */
-const MAX_WINDOW_SIZE = 4096;
+/**
+ * The longest window worth using; past this, short notes stop being detectable
+ * and analysis gets slow for very little accuracy.
+ *
+ * 8192 rather than 4096 because the piano needs it: covering A0 at four periods
+ * takes 6415 samples. Measured across the keyboard at 8192, every note from A0
+ * to C8 resolves to within 10 cents; at 4096, A0 and C1 are not detected at
+ * all. 16384 was also measured and improves A0 only from 9.9 to 4.1 cents for
+ * twice the work (115ms of analysis per second of audio at 8192, against 49ms at
+ * 4096), so it is not worth it.
+ */
+const MAX_WINDOW_SIZE = 8192;
 
 /**
  * Pick an analysis window from the lowest pitch that will be searched.

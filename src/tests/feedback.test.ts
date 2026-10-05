@@ -16,6 +16,7 @@ import {
   recordFeedback,
   saveFeedback,
   FEEDBACK_STORAGE_KEY,
+  type FeedbackIssue,
   type FeedbackRecord,
   type FeedbackStorage,
 } from '../lib/diagnostics/feedback';
@@ -59,6 +60,7 @@ function record(overrides: Partial<FeedbackRecord> = {}): FeedbackRecord {
     issues: ['missing-notes'],
     comment: '',
     at: '2026-10-04T12:00:00.000Z',
+    takeId: 'take-1',
     source: 'recording',
     durationSeconds: 12.4,
     voiceRange: 'tenor',
@@ -130,22 +132,50 @@ describe('storage', () => {
     expect(after[0].verdict).toBe('good');
   });
 
+  test('ticking more symptoms refines one record, it does not append a new take', () => {
+    // The real bug: the page restamps `at` on every submit, and every symptom
+    // checkbox triggers a submit. A single recording rated six times was
+    // reported as six takes with identical notes, and a paste of "7 takes" was
+    // really one take and six clicks.
+    //
+    // Each submit re-reads every checked box, so the symptoms accumulate. That
+    // is modelled here rather than replacing the list each round, which is what
+    // the page actually does.
+    const storage = memoryStorage();
+    const takeId = 'take-abc';
+    const ticked: FeedbackIssue[] = [];
+    let at = '2026-10-04T12:00:00.000Z';
+
+    for (const issue of ['missing-notes', 'wrong-pitches', 'wrong-rhythm'] as const) {
+      at = new Date(Date.parse(at) + 1000).toISOString(); // a new timestamp each time
+      ticked.push(issue);
+      recordFeedback(storage, record({ takeId, at, issues: [...ticked] }));
+    }
+
+    const stored = loadFeedback(storage);
+    expect(stored).toHaveLength(1);
+    expect(stored[0].issues).toEqual(['missing-notes', 'wrong-pitches', 'wrong-rhythm']);
+    // The last write wins for the timestamp, which is right: it is when the
+    // rating was last revised.
+    expect(stored[0].at).toBe(at);
+  });
+
   test('different takes are kept apart', () => {
     const storage = memoryStorage();
-    recordFeedback(storage, record({ at: '2026-10-04T12:00:00.000Z' }));
-    recordFeedback(storage, record({ at: '2026-10-04T12:05:00.000Z' }));
+    recordFeedback(storage, record({ takeId: 'take-a' }));
+    recordFeedback(storage, record({ takeId: 'take-b' }));
     expect(loadFeedback(storage)).toHaveLength(2);
   });
 
   test('history is bounded', () => {
     const storage = memoryStorage();
     for (let i = 0; i < MAX_FEEDBACK_RECORDS + 5; i++) {
-      recordFeedback(storage, record({ at: `2026-10-04T12:${String(i).padStart(2, '0')}:00.000Z` }));
+      recordFeedback(storage, record({ takeId: `take-${i}` }));
     }
     const loaded = loadFeedback(storage);
     expect(loaded).toHaveLength(MAX_FEEDBACK_RECORDS);
     // The oldest is dropped, so the newest rating is always present.
-    expect(loaded[loaded.length - 1].at).toBe(`2026-10-04T12:${String(MAX_FEEDBACK_RECORDS + 4).padStart(2, '0')}:00.000Z`);
+    expect(loaded[loaded.length - 1].takeId).toBe(`take-${MAX_FEEDBACK_RECORDS + 4}`);
   });
 
   test('clear empties the history', () => {
@@ -197,7 +227,7 @@ describe('buildFeedbackReport', () => {
   });
 
   test('counts verdicts in the header', () => {
-    const report = buildFeedbackReport([record(), record({ verdict: 'good', at: 'x' })]);
+    const report = buildFeedbackReport([record(), record({ verdict: 'good', takeId: 'take-2' })]);
     expect(report).toContain('(1 good, 1 bad)');
   });
 
@@ -236,7 +266,11 @@ describe('describeNotes, describeRhythm and feedbackCounts', () => {
 
   test('feedbackCounts splits verdicts', () => {
     expect(
-      feedbackCounts([record(), record({ verdict: 'good', at: 'b' }), record({ verdict: 'good', at: 'c' })]),
+      feedbackCounts([
+        record(),
+        record({ verdict: 'good', takeId: 'take-2' }),
+        record({ verdict: 'good', takeId: 'take-3' }),
+      ]),
     ).toEqual({ good: 2, bad: 1 });
   });
 });

@@ -61,3 +61,29 @@ export function resetTake(
   labels.playhead.textContent = '';
   release();
 }
+
+/**
+ * Replace the current take with a new one, in that order.
+ *
+ * The order is the entire point, and getting it wrong is invisible until a
+ * feature silently stops working. Assigning the new blob first and clearing
+ * afterwards clears the take that has just arrived rather than the one that is
+ * leaving, so `take.blob` ends up null after every analysis — which is exactly
+ * what happened: "Play recording" and "Download recording" both returned early
+ * on every take, so the recording a user had been asked to send in could not be
+ * produced, and every feedback report claimed a duration of 0.0s.
+ *
+ * Doing it in one function is what keeps it correct, and what makes it testable
+ * without a page.
+ */
+export function adoptTake(
+  take: TakeState,
+  audio: HTMLAudioElement | null,
+  release: ReleaseAudio,
+  labels: ResetLabels,
+  next: { blob: Blob; duration: number },
+): void {
+  resetTake(take, audio, release, labels);
+  take.blob = next.blob;
+  take.duration = next.duration;
+}

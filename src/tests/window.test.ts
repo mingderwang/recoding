@@ -90,6 +90,12 @@ describe('windowSizeForFloor', () => {
     }
   });
 
+  test('the piano range gets the long window, because A0 needs it', () => {
+    // Four periods of 27.5Hz is 6415 samples, so 4096 holds only 2.5 and
+    // detects nothing at all at the bottom of a piano.
+    expect(windowSizeForFloor(VOICE_RANGES.piano.minHz)).toBe(8192);
+  });
+
   test('always a power of two, so the autocorrelation FFT stays cheap', () => {
     for (let hz = 40; hz < 1200; hz += 7) {
       const size = windowSizeForFloor(hz);
@@ -101,7 +107,7 @@ describe('windowSizeForFloor', () => {
     for (const hz of [0, -50, 20, 55, 95, 200, 5000, Number.NaN]) {
       const size = windowSizeForFloor(hz);
       expect(size).toBeGreaterThanOrEqual(2048);
-      expect(size).toBeLessThanOrEqual(4096);
+      expect(size).toBeLessThanOrEqual(8192);
     }
   });
 });
@@ -137,7 +143,7 @@ describe('the cost of the short window', () => {
     // preset, the window `windowSizeForFloor` picks must resolve that preset's
     // own lowest note. Without it the rule could drift and nothing would notice
     // until a bass came out silent.
-    for (const id of ['bass', 'tenor', 'alto', 'soprano'] as const) {
+    for (const id of ['bass', 'tenor', 'alto', 'soprano', 'piano'] as const) {
       const range = VOICE_RANGES[id];
       const windowSize = windowSizeForFloor(range.minHz);
       const measured = measurePitch(range.minHz, windowSize, range.minHz);

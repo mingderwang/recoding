@@ -18,7 +18,7 @@
  * silently transposing them an octave.
  */
 
-export type VoiceRangeId = 'auto' | 'bass' | 'tenor' | 'alto' | 'soprano';
+export type VoiceRangeId = 'auto' | 'bass' | 'tenor' | 'alto' | 'soprano' | 'piano';
 
 export interface VoiceRange {
   id: VoiceRangeId;
@@ -39,6 +39,15 @@ export const VOICE_RANGES: Record<VoiceRangeId, VoiceRange> = {
   tenor: { id: 'tenor', label: 'Tenor', minHz: 95, maxHz: 600, lowMidi: 45, highMidi: 77 },
   alto: { id: 'alto', label: 'Alto', minHz: 130, maxHz: 800, lowMidi: 50, highMidi: 80 },
   soprano: { id: 'soprano', label: 'Soprano', minHz: 200, maxHz: 1100, lowMidi: 55, highMidi: 84 },
+  // The whole keyboard, A0 to C8. Measured at an 8192 window, every note from A0
+  // to C8 resolves to within 10 cents; the top of the keyboard is not the weak
+  // end, despite C8 having a period of only 10.5ms.
+  //
+  // This is a MONOPHONIC piano preset: one note at a time. A chord or any
+  // overlapping notes will not read, because the detector reports whichever
+  // pitch is locally strongest — the same limitation as a voice with
+  // accompaniment, but with no way to narrow the band to hide it.
+  piano: { id: 'piano', label: 'Piano (one note at a time)', minHz: 27.5, maxHz: 4186, lowMidi: 21, highMidi: 108 },
 };
 
 export function voiceRange(id: VoiceRangeId): VoiceRange {

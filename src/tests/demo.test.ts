@@ -220,6 +220,7 @@ test('a feedback report describes a real transcription, not a placeholder', () =
       issues: ['missing-notes'],
       comment: 'the last two notes are gone',
       at: '2026-10-04T00:00:00.000Z',
+      takeId: 'take-demo',
       source: 'demo',
       durationSeconds: samples.length / SAMPLE_RATE,
       voiceRange: 'auto',
